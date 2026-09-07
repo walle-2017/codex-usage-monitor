@@ -212,6 +212,36 @@ mod tests {
     }
 
     #[test]
+    fn taskbar_line_matches_each_preset_density() {
+        let section = section_with_local_reset(81.0, 1_789_000_000);
+        let default = taskbar_line(
+            AppearancePreset::Default,
+            LanguageId::SimplifiedChinese,
+            &section,
+            UsageWindowKind::Session,
+        );
+        let compact = taskbar_line(
+            AppearancePreset::Compact,
+            LanguageId::SimplifiedChinese,
+            &section,
+            UsageWindowKind::Session,
+        );
+        let minimal = taskbar_line(
+            AppearancePreset::Minimal,
+            LanguageId::SimplifiedChinese,
+            &section,
+            UsageWindowKind::Session,
+        );
+
+        assert!(default.starts_with("19%  ↻"));
+        assert!(compact.starts_with("19%  "));
+        assert!(!compact.contains('↻'));
+        assert_eq!(minimal, "19%");
+        assert!(minimal.len() < compact.len());
+        assert!(compact.len() < default.len());
+    }
+
+    #[test]
     fn quota_tone_tracks_remaining_quota() {
         assert_eq!(quota_tone(81.0), QuotaTone::Critical);
         assert_eq!(quota_tone(80.0), QuotaTone::Warning);
