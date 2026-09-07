@@ -1475,6 +1475,7 @@ fn total_widget_width_for_preset(
     let (label_width, text_width) = usage_layout_widths(language, preset);
     let metrics = preset.metrics();
     let model_width = (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * bar_segments - sc(SEGMENT_GAP)
+        + sc(metrics.bar_value_gap)
         + sc(metrics.bar_value_width)
         + sc(metrics.bar_right_margin)
         + sc(text_width);
@@ -3982,6 +3983,7 @@ fn draw_row(
 
 fn model_usage_width(segment_count: i32, text_width: i32, preset: AppearancePreset) -> i32 {
     (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count - sc(SEGMENT_GAP)
+        + sc(preset.metrics().bar_value_gap)
         + sc(preset.metrics().bar_value_width)
         + sc(preset.metrics().bar_right_margin)
         + sc(text_width)
@@ -4042,7 +4044,7 @@ fn draw_usage_bar(
             let _ = DeleteObject(rgn);
         }
 
-        let text_x = bar_x + progress_width;
+        let text_x = bar_x + progress_width + sc(metrics.bar_value_gap);
         draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
     }
 }
