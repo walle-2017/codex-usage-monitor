@@ -27,7 +27,7 @@ pub fn apply_windows_system_proxy_env() {
 
     std::env::set_var("HTTPS_PROXY", &proxy);
     std::env::set_var("HTTP_PROXY", &proxy);
-    diagnose::log(format!("using Windows system proxy {proxy}"));
+    diagnose::log("using Windows system proxy");
 }
 
 fn proxy_env_configured() -> bool {
