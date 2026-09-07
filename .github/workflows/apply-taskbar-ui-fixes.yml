@@ -18,16 +18,16 @@ jobs:
           ref: taskbar-drag-ui-fixes
           fetch-depth: 0
 
-      - name: Apply drag and compact UI fixes
+      - name: Update fork documentation
         shell: pwsh
         run: ./scripts/apply-taskbar-ui-fixes.ps1
 
-      - name: Commit source changes
+      - name: Commit documentation
         shell: pwsh
         run: |
-          if (-not (git status --porcelain)) { throw 'Patch produced no changes.' }
+          if (-not (git status --porcelain)) { throw 'Documentation update produced no changes.' }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/window.rs
-          git commit -m 'fix: harden taskbar drag and compact quota layout'
+          git add README-FORK.md
+          git commit -m 'docs: update taskbar interaction notes'
           git push origin HEAD:taskbar-drag-ui-fixes

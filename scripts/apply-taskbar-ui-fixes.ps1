@@ -1,181 +1,84 @@
 $ErrorActionPreference = 'Stop'
-$path = Join-Path $PSScriptRoot '..\src\window.rs'
-$source = Get-Content -Raw $path
+$readmePath = Join-Path $PSScriptRoot '..\README-FORK.md'
+$readme = Get-Content -Raw $readmePath
 
-function Replace-Once([string]$old, [string]$new, [string]$name) {
-    $count = ([regex]::Matches($script:source, [regex]::Escape($old))).Count
-    if ($count -ne 1) { throw "$name expected exactly once, found $count" }
-    $script:source = $script:source.Replace($old, $new)
+$section = @'
+## 9. 任务栏外观与拖动交互
+
+本 Fork 的任务栏外观只保留两套预设，通过右键菜单 `外观 / Appearance` 即时切换：
+
+| 预设 | 任务栏表现 | 适用场景 |
+| --- | --- | --- |
+| 紧凑 | `5H  [进度 + 百分比]  13:40` / `7D  [进度 + 百分比]  09/11` | **默认**，保留重置时间 |
+| 极简 | `5H  [进度 + 百分比]` / `7D  [进度 + 百分比]` | 最小占用 |
+
+设置保存在：
+
+```text
+%APPDATA%\CodexUsage\settings.json
+```
+
+字段示例：
+
+```json
+{
+  "appearance_preset": "compact"
 }
+```
 
-Replace-Once 'const IDM_APPEARANCE_DEFAULT: u16 = 90;' '' 'default appearance menu id'
+旧配置中没有 `appearance_preset` 时默认使用 `compact`。历史版本如果已经保存：
 
-Replace-Once @'
-fn row_bar_segment_count(active_models: i32, preset: AppearancePreset) -> i32 {
-    match active_models {
-        1 => match preset {
-            AppearancePreset::Default => SEGMENT_COUNT,
-            AppearancePreset::Compact => 8,
-            AppearancePreset::Minimal => 6,
-        },
-        2 => match preset {
-            AppearancePreset::Default => 5,
-            AppearancePreset::Compact => 4,
-            AppearancePreset::Minimal => 3,
-        },
-        _ => 3,
-    }
+```json
+{
+  "appearance_preset": "default"
 }
-'@ @'
-fn row_bar_segment_count(active_models: i32, preset: AppearancePreset) -> i32 {
-    match active_models {
-        1 => match preset {
-            AppearancePreset::Compact => 8,
-            AppearancePreset::Minimal => 6,
-        },
-        2 => match preset {
-            AppearancePreset::Compact => 4,
-            AppearancePreset::Minimal => 3,
-        },
-        _ => 3,
-    }
+```
+
+新版会自动迁移为 `compact`，无需删除原有配置文件。
+
+任务栏标签统一使用大写 `5H` / `7D`。重置时间继续使用 `13:40` / `09/11` 这种短格式，不再添加 `↻` 等额外图标。
+
+百分比与进度条现在作为同一个视觉组件绘制，但百分比拥有独立的固定宽度区域：进度填充不会进入百分比区域，因此不需要根据填充颜色动态反色或增加文字描边。紧凑模式的重置时间仍位于组合进度组件右侧；极简模式隐藏重置时间，但托盘 Tooltip 继续保留完整额度和重置说明。
+
+进度条使用 **1 个逻辑像素**的小圆角，避免低高度 GDI 圆角产生明显的胶囊感或锯齿感。
+
+单独显示 Codex 时，进度条和主百分比继续按**剩余额度**使用状态色：
+
+```text
+剩余 > 50%       正常
+剩余 20% ~ 50%   提醒
+剩余 < 20%       警示
+```
+
+多 Provider 同时显示时仍优先保留各 Provider 的识别色。
+
+### 拖动稳定性修复
+
+拖动左侧手柄时，`WM_MOUSEMOVE` 不再在持有全局 `STATE` Mutex 的情况下调用会再次获取同一锁的 `current_appearance_preset()`，避免 UI 线程发生不可重入锁死。
+
+同时增加 `WM_CAPTURECHANGED` 和 `WM_CANCELMODE` 清理路径：Windows 取消拖动或鼠标捕获意外丢失时会立即清除 `dragging` 状态，防止光标长期停留在左右调整状态以及任务栏输入被持续捕获。
+
+CI 额外执行：
+
+```text
+scripts/assert-drag-handler-safe.ps1
+scripts/assert-compact-ui.ps1
+```
+
+分别防止重新引入拖动期间的重复加锁路径，以及 Default 预设、重置图标、大圆角等已移除 UI 行为。
+
+主任务栏显示不使用 Emoji。原因是当前 Win32 GDI / Segoe UI 绘制链路下彩色 Emoji 的字体回退、基线和尺寸一致性不可控；状态信息继续使用文字、几何进度条和颜色表达。
+
+两套预设继续跟随 Windows 明/暗主题，不改变 Provider、Token、代理和轮询逻辑，也不会恢复 Codex CLI 自动刷新路径。
+
+'@
+
+$pattern = '(?s)## 9\. 任务栏外观预设.*?(?=## 10\. 安全回归检查)'
+$updated = [regex]::Replace($readme, $pattern, $section, 1)
+if ($updated -eq $readme) {
+    throw 'README-FORK appearance section was not replaced.'
 }
-'@ 'row bar preset match'
-
-Replace-Once @'
-                IDM_APPEARANCE_DEFAULT | IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
-                    let preset = match id {
-                        IDM_APPEARANCE_DEFAULT => AppearancePreset::Default,
-                        IDM_APPEARANCE_MINIMAL => AppearancePreset::Minimal,
-                        _ => AppearancePreset::Compact,
-                    };
-'@ @'
-                IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
-                    let preset = if id == IDM_APPEARANCE_MINIMAL {
-                        AppearancePreset::Minimal
-                    } else {
-                        AppearancePreset::Compact
-                    };
-'@ 'appearance command handler'
-
-Replace-Once @'
-        let appearance_items = [
-            (IDM_APPEARANCE_DEFAULT, AppearancePreset::Default),
-            (IDM_APPEARANCE_COMPACT, AppearancePreset::Compact),
-            (IDM_APPEARANCE_MINIMAL, AppearancePreset::Minimal),
-        ];
-'@ @'
-        let appearance_items = [
-            (IDM_APPEARANCE_COMPACT, AppearancePreset::Compact),
-            (IDM_APPEARANCE_MINIMAL, AppearancePreset::Minimal),
-        ];
-'@ 'appearance menu items'
-
-$dragHeight = 'sc(current_appearance_preset().metrics().widget_height)'
-$move = [regex]::Match($source, '(?s)(WM_MOUSEMOVE\s*=>\s*\{.*?)(WM_LBUTTONUP\s*=>)')
-if (-not $move.Success) { throw 'WM_MOUSEMOVE handler not found' }
-$moveBody = $move.Groups[1].Value
-if ($moveBody -notmatch [regex]::Escape($dragHeight)) { throw 're-entrant appearance lookup not found inside WM_MOUSEMOVE' }
-$moveBody = $moveBody.Replace($dragHeight, 'sc(s.appearance_preset.metrics().widget_height)')
-$source = $source.Substring(0, $move.Index) + $moveBody + $move.Groups[2].Value + $source.Substring($move.Index + $move.Length)
-
-Replace-Once @'
-        WM_LBUTTONUP => {
-'@ @'
-        WM_CANCELMODE => {
-            {
-                let mut state = lock_state();
-                if let Some(s) = state.as_mut() {
-                    s.dragging = false;
-                }
-            }
-            let _ = ReleaseCapture();
-            LRESULT(0)
-        }
-        WM_CAPTURECHANGED => {
-            let mut state = lock_state();
-            if let Some(s) = state.as_mut() {
-                s.dragging = false;
-            }
-            LRESULT(0)
-        }
-        WM_LBUTTONUP => {
-'@ 'drag cancellation handlers'
-
-Replace-Once 'let corner_r = bar_h / 2;' 'let corner_r = sc(1).min((bar_h / 2).max(1));' 'progress corner radius'
-
-Replace-Once @'
-fn model_usage_width(segment_count: i32, text_width: i32, preset: AppearancePreset) -> i32 {
-    (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count - sc(SEGMENT_GAP)
-        + sc(preset.metrics().bar_right_margin)
-        + sc(text_width)
-}
-'@ @'
-fn model_usage_width(segment_count: i32, text_width: i32, preset: AppearancePreset) -> i32 {
-    (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count - sc(SEGMENT_GAP)
-        + sc(preset.metrics().bar_value_width)
-        + sc(preset.metrics().bar_right_margin)
-        + sc(text_width)
-}
-'@ 'model usage width'
-
-Replace-Once @'
-fn usage_layout_widths(_language: LanguageId, preset: AppearancePreset) -> (i32, i32) {
-    let metrics = preset.metrics();
-    (metrics.label_width, metrics.text_width + metrics.secondary_width)
-}
-'@ @'
-fn usage_layout_widths(_language: LanguageId, preset: AppearancePreset) -> (i32, i32) {
-    let metrics = preset.metrics();
-    (metrics.label_width, metrics.secondary_width)
-}
-'@ 'usage layout widths'
-
-Replace-Once @'
-    let seg_w = sc(SEGMENT_W);
-    let seg_h = sc(SEGMENT_H);
-    let seg_gap = sc(SEGMENT_GAP);
-    let bar_width = segment_count * (seg_w + seg_gap) - seg_gap;
-    let bar_h = sc(current_appearance_preset().metrics().bar_height).min(seg_h);
-'@ @'
-    let seg_w = sc(SEGMENT_W);
-    let seg_h = sc(SEGMENT_H);
-    let seg_gap = sc(SEGMENT_GAP);
-    let metrics = current_appearance_preset().metrics();
-    let progress_width = segment_count * (seg_w + seg_gap) - seg_gap;
-    let bar_value_width = sc(metrics.bar_value_width);
-    let bar_width = progress_width + bar_value_width;
-    let bar_h = sc(metrics.bar_height).min(seg_h);
-'@ 'combined progress/value geometry'
-
-Replace-Once 'let fill_width = (bar_width as f64 * percent_clamped / 100.0).round() as i32;' 'let fill_width = (progress_width as f64 * percent_clamped / 100.0).round() as i32;' 'progress fill width'
-
-Replace-Once @'
-        let text_x = bar_x + bar_width + sc(current_appearance_preset().metrics().bar_right_margin);
-        draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
-'@ @'
-        let text_x = bar_x + progress_width;
-        draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
-'@ 'integrated percentage position'
-
-Replace-Once '            right: text_x + sc(metrics.text_width),' '            right: text_x + sc(metrics.bar_value_width),' 'primary percentage width'
-
-Replace-Once @'
-            let secondary_x = text_x + sc(metrics.text_width);
-            let mut secondary_rect = RECT {
-                left: secondary_x,
-                top: y,
-                right: text_x + sc(total_text_width),
-'@ @'
-            let secondary_x = text_x + sc(metrics.bar_value_width) + sc(metrics.bar_right_margin);
-            let mut secondary_rect = RECT {
-                left: secondary_x,
-                top: y,
-                right: secondary_x + sc(total_text_width),
-'@ 'secondary reset position'
-
-$source = $source.Replace('5h ', '5H ').Replace('7d ', '7D ')
-Set-Content -Path $path -Value $source -Encoding utf8NoBOM -NoNewline
+Set-Content -Path $readmePath -Value $updated -Encoding utf8NoBOM -NoNewline
 
 & (Join-Path $PSScriptRoot 'assert-drag-handler-safe.ps1')
 & (Join-Path $PSScriptRoot 'assert-compact-ui.ps1')
