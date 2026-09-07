@@ -1475,6 +1475,7 @@ fn total_widget_width_for_preset(
     let (label_width, text_width) = usage_layout_widths(language, preset);
     let metrics = preset.metrics();
     let model_width = (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * bar_segments - sc(SEGMENT_GAP)
+        + sc(metrics.bar_value_width)
         + sc(metrics.bar_right_margin)
         + sc(text_width);
 
@@ -4003,8 +4004,6 @@ fn draw_usage_bar(
     let seg_gap = sc(SEGMENT_GAP);
     let metrics = current_appearance_preset().metrics();
     let progress_width = segment_count * (seg_w + seg_gap) - seg_gap;
-    let bar_value_width = sc(metrics.bar_value_width);
-    let bar_width = progress_width + bar_value_width;
     let bar_h = sc(metrics.bar_height).min(seg_h);
     let bar_y = y + (seg_h - bar_h) / 2;
     let corner_r = sc(1).min((bar_h / 2).max(1));
@@ -4014,7 +4013,7 @@ fn draw_usage_bar(
         let bar_rect = RECT {
             left: bar_x,
             top: bar_y,
-            right: bar_x + bar_width,
+            right: bar_x + progress_width,
             bottom: bar_y + bar_h,
         };
         draw_rounded_rect(hdc, &bar_rect, track, corner_r);
