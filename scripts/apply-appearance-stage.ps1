@@ -1,152 +1,66 @@
 # Temporary branch-only patch helper; removed before merge.
 $ErrorActionPreference = 'Stop'
-$path = 'src/window.rs'
+$path = 'README-FORK.md'
 $text = Get-Content -Raw -Path $path
-
-function Replace-Required([string]$old, [string]$new) {
-    if (-not $script:text.Contains($old)) { throw "Required source fragment not found:`n$old" }
-    $script:text = $script:text.Replace($old, $new)
-}
-
-if ($text.Contains('fn draw_usage_value_text(')) {
-    Write-Host 'Final appearance hierarchy already present.'
+$marker = '## 9. 任务栏外观预设'
+if ($text.Contains($marker)) {
+    Write-Host 'Fork appearance notes already present.'
     exit 0
 }
 
-# Preset-specific widget heights.
-$text = $text.Replace('sc(WIDGET_HEIGHT),', 'sc(AppearancePreset::Compact.metrics().widget_height),')
-$text = $text.Replace('let height = sc(WIDGET_HEIGHT);', 'let height = sc(current_appearance_preset().metrics().widget_height);')
-$text = $text.Replace('let widget_height = sc(WIDGET_HEIGHT);', 'let widget_height = sc(current_appearance_preset().metrics().widget_height);')
-$text = $text.Replace(
-    'let divider_top = (sc(WIDGET_HEIGHT) - divider_h) / 2;',
-    'let divider_top = (sc(current_appearance_preset().metrics().widget_height) - divider_h) / 2;'
-)
+$needle = '## 9. 安全回归检查'
+$section = @'
+## 9. 任务栏外观预设
 
-# Preset-specific row spacing.
-Replace-Required @'
-        let row2_y = height - sc(5) - sc(SEGMENT_H);
-        let row1_y = row2_y - sc(10) - sc(SEGMENT_H);
-'@ @'
-        let row2_y = height - sc(4) - sc(SEGMENT_H);
-        let row1_y = row2_y - sc(preset.metrics().row_gap) - sc(SEGMENT_H);
-'@
+本 Fork 新增 `src/appearance.rs`，提供三套内置任务栏外观，通过右键菜单 `外观 / Appearance` 即时切换：
 
-# Replace the single-font value draw with primary/secondary visual hierarchy.
-Replace-Required @'
-        let text_x = bar_x + bar_width + sc(current_appearance_preset().metrics().bar_right_margin);
-        let mut text_wide: Vec<u16> = text.encode_utf16().collect();
-        let mut text_rect = RECT {
-            left: text_x,
-            top: y,
-            right: text_x + sc(text_width),
-            bottom: y + seg_h,
-        };
-        let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
-        let _ = DrawTextW(
-            hdc,
-            &mut text_wide,
-            &mut text_rect,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-        );
-'@ @'
-        let text_x = bar_x + bar_width + sc(current_appearance_preset().metrics().bar_right_margin);
-        draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
-'@
+| 预设 | 任务栏表现 | 适用场景 |
+| --- | --- | --- |
+| 默认 | `19%  ↻13:40`，空间更宽松 | 信息完整 |
+| 紧凑 | `19%  13:40`，更细的进度条和更短宽度 | **默认推荐** |
+| 极简 | `19%`，隐藏任务栏重置时间 | 最小占用 |
 
-Replace-Required @'
-fn draw_rounded_rect(hdc: HDC, rect: &RECT, color: &Color, radius: i32) {
-'@ @'
-fn draw_usage_value_text(
-    hdc: HDC,
-    text_x: i32,
-    y: i32,
-    row_height: i32,
-    text: &str,
-    primary_color: &Color,
-    total_text_width: i32,
-) {
-    let preset = current_appearance_preset();
-    let metrics = preset.metrics();
-    let (primary, secondary) = text
-        .split_once("  ")
-        .map(|(primary, secondary)| (primary, Some(secondary)))
-        .unwrap_or((text, None));
+设置保存在：
 
-    unsafe {
-        let font_name = native_interop::wide_str("Segoe UI");
-        let primary_font = CreateFontW(
-            sc(metrics.value_font_height),
-            0, 0, 0,
-            FW_SEMIBOLD.0 as i32,
-            0, 0, 0,
-            DEFAULT_CHARSET.0 as u32,
-            OUT_TT_PRECIS.0 as u32,
-            CLIP_DEFAULT_PRECIS.0 as u32,
-            CLEARTYPE_QUALITY.0 as u32,
-            (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
-            PCWSTR::from_raw(font_name.as_ptr()),
-        );
-        let old_font = SelectObject(hdc, primary_font);
-        let _ = SetTextColor(hdc, COLORREF(primary_color.to_colorref()));
-        let mut primary_wide: Vec<u16> = primary.encode_utf16().collect();
-        let mut primary_rect = RECT {
-            left: text_x,
-            top: y,
-            right: text_x + sc(metrics.text_width),
-            bottom: y + row_height,
-        };
-        let _ = DrawTextW(
-            hdc,
-            &mut primary_wide,
-            &mut primary_rect,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-        );
+```text
+%APPDATA%\CodexUsage\settings.json
+```
 
-        if let Some(secondary) = secondary {
-            let secondary_font = CreateFontW(
-                sc(metrics.secondary_font_height),
-                0, 0, 0,
-                FW_NORMAL.0 as i32,
-                0, 0, 0,
-                DEFAULT_CHARSET.0 as u32,
-                OUT_TT_PRECIS.0 as u32,
-                CLIP_DEFAULT_PRECIS.0 as u32,
-                CLEARTYPE_QUALITY.0 as u32,
-                (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
-                PCWSTR::from_raw(font_name.as_ptr()),
-            );
-            SelectObject(hdc, secondary_font);
-            let secondary_color = if theme::is_dark_mode() {
-                Color::from_hex("#92979D")
-            } else {
-                Color::from_hex("#666666")
-            };
-            let _ = SetTextColor(hdc, COLORREF(secondary_color.to_colorref()));
-            let mut secondary_wide: Vec<u16> = secondary.encode_utf16().collect();
-            let secondary_x = text_x + sc(metrics.text_width);
-            let mut secondary_rect = RECT {
-                left: secondary_x,
-                top: y,
-                right: text_x + sc(total_text_width),
-                bottom: y + row_height,
-            };
-            let _ = DrawTextW(
-                hdc,
-                &mut secondary_wide,
-                &mut secondary_rect,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-            );
-            SelectObject(hdc, primary_font);
-            let _ = DeleteObject(secondary_font);
-        }
+字段示例：
 
-        SelectObject(hdc, old_font);
-        let _ = DeleteObject(primary_font);
-    }
+```json
+{
+  "appearance_preset": "compact"
 }
+```
 
-fn draw_rounded_rect(hdc: HDC, rect: &RECT, color: &Color, radius: i32) {
+旧配置中没有该字段时默认使用 `compact`，因此无需删除原有 `settings.json`。
+
+任务栏数值采用分层显示：百分比使用更醒目的字重和字号，重置时间使用更小、更弱的次级文字；极简模式虽然不在任务栏显示重置时间，但托盘 Tooltip 仍保留完整额度和重置说明。
+
+单独显示 Codex 时，进度条和主百分比会按**剩余额度**使用状态色：
+
+```text
+剩余 > 50%       正常
+剩余 20% ~ 50%   提醒
+剩余 < 20%       警示
+```
+
+多 Provider 同时显示时仍优先保留各 Provider 的识别色，避免不同服务难以区分。
+
+三套预设继续跟随 Windows 明/暗主题，不改变 Provider、Token、代理和轮询逻辑，也不会恢复 Codex CLI 自动刷新路径。
+
 '@
 
+if (-not $text.Contains($needle)) {
+    throw 'Unable to locate README insertion point.'
+}
+$text = $text.Replace($needle, $section + $needle)
+# Renumber following headings to keep the fork document sequential.
+$text = $text.Replace('## 10. Windows CI / Build', '## 11. Windows CI / Build')
+$text = $text.Replace('## 11. 后续同步 upstream 时的重点检查', '## 12. 后续同步 upstream 时的重点检查')
+$text = $text.Replace('## 12. 手工快速验证', '## 13. 手工快速验证')
+$text = $text.Replace('## 13. 关键 Git 记录', '## 14. 关键 Git 记录')
+$text = $text.Replace('## 9. 安全回归检查', '## 10. 安全回归检查')
 Set-Content -Path $path -Value $text -Encoding utf8NoBOM
-Write-Host 'Applied preset height, row spacing, and primary/secondary value hierarchy.'
+Write-Host 'Inserted fork appearance notes.'
