@@ -9,13 +9,20 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: safe-no-codex-cli
+
+      - name: Apply safe Codex source patch
+        shell: pwsh
+        run: ./scripts/apply-safe-codex-patch.ps1
 
       - name: Verify Codex CLI refresh is disabled
         shell: pwsh
@@ -36,6 +43,20 @@ jobs:
           Copy-Item target/release/codex-usage.exe dist/codex-usage.exe
           $hash = (Get-FileHash -Algorithm SHA256 dist/codex-usage.exe).Hash.ToLowerInvariant()
           "$hash  codex-usage.exe" | Set-Content -Encoding ascii dist/codex-usage.exe.sha256
+
+      - name: Commit hardened source
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          if (-not (git status --porcelain)) {
+            Write-Host 'No hardened source changes to commit.'
+            exit 0
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/poller.rs
+          git commit -m 'fix: disable automatic Codex CLI token refresh'
+          git push origin HEAD:safe-no-codex-cli
 
       - name: Upload Windows x64 artifact
         uses: actions/upload-artifact@v4
