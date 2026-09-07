@@ -22,6 +22,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-no-codex-cli-refresh.ps1
 
+      - name: Verify taskbar drag capture handling
+        shell: pwsh
+        run: ./scripts/assert-drag-handler-safe.ps1
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests
