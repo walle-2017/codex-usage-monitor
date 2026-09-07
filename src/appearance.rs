@@ -35,6 +35,7 @@ pub struct StyleMetrics {
     pub widget_height: i32,
     pub bar_width: i32,
     pub bar_value_width: i32,
+    pub bar_value_gap: i32,
     pub bar_height: i32,
     pub label_width: i32,
     pub label_right_margin: i32,
@@ -57,6 +58,7 @@ impl AppearancePreset {
                 widget_height: 42,
                 bar_width: 82,
                 bar_value_width: 34,
+                bar_value_gap: 2,
                 bar_height: 8,
                 label_width: 18,
                 label_right_margin: 6,
@@ -75,6 +77,7 @@ impl AppearancePreset {
                 widget_height: 40,
                 bar_width: 62,
                 bar_value_width: 34,
+                bar_value_gap: 2,
                 bar_height: 7,
                 label_width: 18,
                 label_right_margin: 5,
@@ -200,6 +203,7 @@ mod tests {
 
         assert!(minimal.bar_width < compact.bar_width);
         assert_eq!(minimal.bar_value_width, compact.bar_value_width);
+        assert_eq!(minimal.bar_value_gap, compact.bar_value_gap);
         assert_eq!(minimal.text_width, 0);
         assert!(minimal.hide_reset_time);
         assert!(!compact.hide_reset_time);
@@ -212,6 +216,15 @@ mod tests {
 
         assert!(compact.bar_value_width >= 34);
         assert!(minimal.bar_value_width >= 34);
+    }
+
+    #[test]
+    fn percentage_value_gap_is_subtle_but_visible() {
+        let compact = AppearancePreset::Compact.metrics();
+        let minimal = AppearancePreset::Minimal.metrics();
+
+        assert_eq!(compact.bar_value_gap, 2);
+        assert_eq!(minimal.bar_value_gap, 2);
     }
 
     #[test]
