@@ -55,7 +55,7 @@ jobs:
           }
           Set-Content -Path $windowPath -Value $window -Encoding utf8NoBOM -NoNewline
 
-          $remaining = Select-String -Path $appearancePath,$windowPath -Pattern 'pub const ALL:|DIVIDER_RIGHT_MARGIN|LABEL_WIDTH|LABEL_RIGHT_MARGIN|BAR_RIGHT_MARGIN|TEXT_WIDTH|SIMPLIFIED_CHINESE_LABEL_WIDTH|SIMPLIFIED_CHINESE_TEXT_WIDTH|MODEL_RIGHT_MARGIN|WIDGET_HEIGHT'
+          $remaining = Select-String -Path $appearancePath,$windowPath -CaseSensitive -Pattern '^\s*pub const ALL:|^const (DIVIDER_RIGHT_MARGIN|LABEL_WIDTH|LABEL_RIGHT_MARGIN|BAR_RIGHT_MARGIN|TEXT_WIDTH|SIMPLIFIED_CHINESE_LABEL_WIDTH|SIMPLIFIED_CHINESE_TEXT_WIDTH|MODEL_RIGHT_MARGIN|WIDGET_HEIGHT):'
           if ($remaining) {
             $remaining | ForEach-Object { Write-Error $_.Line }
             throw 'Obsolete warning symbols remain after cleanup.'
