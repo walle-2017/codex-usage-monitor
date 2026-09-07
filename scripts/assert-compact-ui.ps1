@@ -11,6 +11,9 @@ if ($appearanceProduction -match '(?m)^\s*Default,\s*$') {
 if ($windowProduction -match 'IDM_APPEARANCE_DEFAULT') {
     throw 'Appearance menu must only expose Compact and Minimal.'
 }
+if ($windowProduction -match '(?m)^const SEGMENT_COUNT:') {
+    throw 'Obsolete Default-preset SEGMENT_COUNT constant must be removed.'
+}
 if (($appearanceProduction + $windowProduction) -match '↻') {
     throw 'Reset-time icon must not appear in the taskbar UI.'
 }
