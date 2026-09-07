@@ -34,6 +34,8 @@ fn main() {
         }
     }
 
+    system_proxy::apply_windows_system_proxy_env();
+
     if let Some(exit_code) = updater::handle_cli_mode(&args) {
         if diagnose_enabled {
             diagnose::log(format!("cli mode exited with code {exit_code}"));
