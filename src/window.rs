@@ -1408,16 +1408,17 @@ const SEGMENT_W: i32 = 10;
 const SEGMENT_H: i32 = 13;
 const SEGMENT_GAP: i32 = 1;
 
-const LEFT_DIVIDER_W: i32 = 3;
+const DRAG_HANDLE_HIT_W: i32 = 8;
+const DRAG_HANDLE_HIT_H: i32 = 24;
 const RIGHT_MARGIN: i32 = 1;
 
 fn is_drag_handle_point(client_x: i32, client_y: i32) -> bool {
-    let divider_h = sc(18);
-    let divider_top = (sc(current_appearance_preset().metrics().widget_height) - divider_h) / 2;
+    let hit_h = sc(DRAG_HANDLE_HIT_H);
+    let hit_top = (sc(current_appearance_preset().metrics().widget_height) - hit_h) / 2;
     client_x >= 0
-        && client_x < sc(LEFT_DIVIDER_W)
-        && client_y >= divider_top
-        && client_y < divider_top + divider_h
+        && client_x < sc(DRAG_HANDLE_HIT_W)
+        && client_y >= hit_top
+        && client_y < hit_top + hit_h
 }
 
 fn cursor_is_on_drag_handle(hwnd: HWND) -> bool {
@@ -1480,7 +1481,7 @@ fn total_widget_width_for_preset(
         + sc(metrics.bar_right_margin)
         + sc(text_width);
 
-    sc(LEFT_DIVIDER_W)
+    sc(DRAG_HANDLE_HIT_W)
         + sc(metrics.divider_right_margin)
         + sc(label_width)
         + sc(metrics.label_right_margin)
@@ -2088,44 +2089,10 @@ fn paint_content(
         FillRect(hdc, &client_rect, bg_brush);
         let _ = DeleteObject(bg_brush);
 
-        // Left divider
-        let divider_h = sc(18);
-        let divider_top = (height - divider_h) / 2;
-        let divider_bottom = divider_top + divider_h;
+        draw_acrylic_panel(hdc, width, height, is_dark, preset.metrics().panel_radius);
+        draw_drag_handle(hdc, height, is_dark);
 
-        let (div_left, div_right) = if is_dark {
-            ((80, 80, 80), (40, 40, 40))
-        } else {
-            ((160, 160, 160), (230, 230, 230))
-        };
-
-        let left_brush = CreateSolidBrush(COLORREF(native_interop::colorref(
-            div_left.0, div_left.1, div_left.2,
-        )));
-        let left_rect = RECT {
-            left: 0,
-            top: divider_top,
-            right: sc(2),
-            bottom: divider_bottom,
-        };
-        FillRect(hdc, &left_rect, left_brush);
-        let _ = DeleteObject(left_brush);
-
-        let right_brush = CreateSolidBrush(COLORREF(native_interop::colorref(
-            div_right.0,
-            div_right.1,
-            div_right.2,
-        )));
-        let right_rect = RECT {
-            left: sc(2),
-            top: divider_top,
-            right: sc(3),
-            bottom: divider_bottom,
-        };
-        FillRect(hdc, &right_rect, right_brush);
-        let _ = DeleteObject(right_brush);
-
-        let content_x = sc(LEFT_DIVIDER_W) + sc(preset.metrics().divider_right_margin);
+        let content_x = sc(DRAG_HANDLE_HIT_W) + sc(preset.metrics().divider_right_margin);
         let row2_y = height - sc(4) - sc(SEGMENT_H);
         let row1_y = row2_y - sc(preset.metrics().row_gap) - sc(SEGMENT_H);
         let single_row_y = (height - sc(SEGMENT_H)) / 2;
@@ -4138,6 +4105,63 @@ fn draw_usage_value_text(
     }
 }
 
+fn draw_acrylic_panel(hdc: HDC, width: i32, height: i32, is_dark: bool, panel_radius: i32) {
+    // This intentionally simulates Acrylic with low-contrast solid colors rather than
+    // per-pixel translucency, preserving the existing ClearType rendering path.
+    let (border, fill) = if is_dark {
+        (Color::from_hex("#343B43"), Color::from_hex("#242A31"))
+    } else {
+        (Color::from_hex("#D4D9DF"), Color::from_hex("#EEF1F4"))
+    };
+
+    let outer_inset = sc(1);
+    let outer = RECT {
+        left: outer_inset,
+        top: outer_inset,
+        right: width - outer_inset,
+        bottom: height - outer_inset,
+    };
+    let radius = sc(panel_radius).max(sc(1));
+    draw_rounded_rect(hdc, &outer, &border, radius);
+
+    let inner_inset = outer_inset + sc(1);
+    let inner = RECT {
+        left: inner_inset,
+        top: inner_inset,
+        right: width - inner_inset,
+        bottom: height - inner_inset,
+    };
+    draw_rounded_rect(hdc, &inner, &fill, (radius - sc(1)).max(sc(1)));
+}
+
+fn draw_drag_handle(hdc: HDC, height: i32, is_dark: bool) {
+    let dot = sc(2).max(1);
+    let gap_x = sc(1).max(1);
+    let gap_y = sc(2).max(1);
+    let matrix_w = dot * 2 + gap_x;
+    let matrix_h = dot * 3 + gap_y * 2;
+    let origin_x = (sc(DRAG_HANDLE_HIT_W) - matrix_w) / 2;
+    let origin_y = (height - matrix_h) / 2;
+    let color = if is_dark {
+        Color::from_hex("#69727C")
+    } else {
+        Color::from_hex("#8A929A")
+    };
+
+    for row in 0..3 {
+        for col in 0..2 {
+            let left = origin_x + col * (dot + gap_x);
+            let top = origin_y + row * (dot + gap_y);
+            let rect = RECT {
+                left,
+                top,
+                right: left + dot,
+                bottom: top + dot,
+            };
+            draw_rounded_rect(hdc, &rect, &color, sc(1).max(1));
+        }
+    }
+}
 fn draw_rounded_rect(hdc: HDC, rect: &RECT, color: &Color, radius: i32) {
     unsafe {
         let brush = CreateSolidBrush(COLORREF(color.to_colorref()));

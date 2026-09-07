@@ -33,6 +33,7 @@ impl<'de> Deserialize<'de> for AppearancePreset {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StyleMetrics {
     pub widget_height: i32,
+    pub panel_radius: i32,
     pub bar_width: i32,
     pub bar_value_width: i32,
     pub bar_value_gap: i32,
@@ -56,6 +57,7 @@ impl AppearancePreset {
         match self {
             Self::Compact => StyleMetrics {
                 widget_height: 42,
+                panel_radius: 5,
                 bar_width: 82,
                 bar_value_width: 34,
                 bar_value_gap: 2,
@@ -75,6 +77,7 @@ impl AppearancePreset {
             },
             Self::Minimal => StyleMetrics {
                 widget_height: 40,
+                panel_radius: 5,
                 bar_width: 62,
                 bar_value_width: 34,
                 bar_value_gap: 2,
