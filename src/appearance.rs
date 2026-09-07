@@ -158,6 +158,20 @@ pub fn taskbar_value_text(
     TaskbarValueText { primary, secondary }
 }
 
+pub fn taskbar_line(
+    preset: AppearancePreset,
+    language: LanguageId,
+    section: &UsageSection,
+    window: UsageWindowKind,
+) -> String {
+    let value = taskbar_value_text(preset, language, section, window);
+    match (preset, value.secondary) {
+        (AppearancePreset::Default, Some(reset)) => format!("{}  ↻{}", value.primary, reset),
+        (AppearancePreset::Compact, Some(reset)) => format!("{}  {}", value.primary, reset),
+        _ => value.primary,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,3 +263,4 @@ mod tests {
         assert_eq!(quota_tone(49.0), QuotaTone::Normal);
     }
 }
+
