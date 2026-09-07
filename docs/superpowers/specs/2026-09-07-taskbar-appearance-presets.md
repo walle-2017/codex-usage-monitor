@@ -46,6 +46,7 @@ The context menu gains an Appearance / 外观 submenu with the three presets. Ch
 ## Compatibility
 
 - Existing settings without `appearance_preset` deserialize as `compact`.
+- Explicit appearance selections round-trip through `settings.json`.
 - Existing provider, quota-window, update-frequency and alert settings are unchanged.
 - No change to Codex authentication, proxy handling or the Codex CLI safety hardening.
 - Windows light/dark theme auto-detection remains intact.
