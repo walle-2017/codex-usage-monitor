@@ -2084,7 +2084,8 @@ fn paint_content(
         let codex_weekly_pct = usage_percent_for_display(language, codex_weekly_pct);
         let antigravity_session_pct = usage_percent_for_display(language, antigravity_session_pct);
         let antigravity_weekly_pct = usage_percent_for_display(language, antigravity_weekly_pct);
-        let preset = current_appearance_preset();`n        let (label_width, text_width) = usage_layout_widths(language, preset);
+        let preset = current_appearance_preset();
+        let (label_width, text_width) = usage_layout_widths(language, preset);
 
         let client_rect = RECT {
             left: 0,
@@ -2134,7 +2135,7 @@ fn paint_content(
         FillRect(hdc, &right_rect, right_brush);
         let _ = DeleteObject(right_brush);
 
-        let content_x = sc(LEFT_DIVIDER_W) + sc(DIVIDER_RIGHT_MARGIN);
+        let content_x = sc(LEFT_DIVIDER_W) + sc(preset.metrics().divider_right_margin);
         let row2_y = height - sc(5) - sc(SEGMENT_H);
         let row1_y = row2_y - sc(10) - sc(SEGMENT_H);
         let single_row_y = (height - sc(SEGMENT_H)) / 2;
@@ -2144,7 +2145,7 @@ fn paint_content(
 
         let font_name = native_interop::wide_str("Segoe UI");
         let font = CreateFontW(
-            sc(-12),
+            sc(preset.metrics().font_height),
             0,
             0,
             0,
@@ -3884,7 +3885,8 @@ fn draw_row(
 ) {
     let seg_h = sc(SEGMENT_H);
     let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
-    let preset = current_appearance_preset();`n    let segment_count = row_bar_segment_count(active_models, preset);
+    let preset = current_appearance_preset();
+    let segment_count = row_bar_segment_count(active_models, preset);
     let use_model_text_colors = active_models > 1;
     let claude_value_color = if use_model_text_colors {
         claude_usage_text_color(is_dark)
@@ -4326,6 +4328,7 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
+
 
 
 
