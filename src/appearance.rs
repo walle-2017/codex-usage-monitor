@@ -206,6 +206,15 @@ mod tests {
     }
 
     #[test]
+    fn percentage_value_slot_has_room_for_three_digits() {
+        let compact = AppearancePreset::Compact.metrics();
+        let minimal = AppearancePreset::Minimal.metrics();
+
+        assert!(compact.bar_value_width >= 34);
+        assert!(minimal.bar_value_width >= 34);
+    }
+
+    #[test]
     fn taskbar_text_separates_percentage_from_reset_hint() {
         let section = section_with_local_reset(81.0, 1_789_000_000);
         let compact = taskbar_value_text(
