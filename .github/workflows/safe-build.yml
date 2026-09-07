@@ -26,6 +26,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-drag-handler-safe.ps1
 
+      - name: Verify compact taskbar UI contract
+        shell: pwsh
+        run: ./scripts/assert-compact-ui.ps1
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests
