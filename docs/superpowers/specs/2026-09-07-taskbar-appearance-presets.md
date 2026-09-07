@@ -15,8 +15,9 @@ Improve the taskbar widget's visual hierarchy without changing its Win32/GDI arc
 Each quota row is rendered as:
 
 ```text
-5h  [progress]  19%  ↻13:40
-7d  [progress]  80%  ↻09/11
+Default: 5h  [progress]  19%  ↻13:40
+Compact: 5h  [progress]  19%  13:40
+Minimal: 5h  [progress]  19%
 ```
 
 Compact mode omits the reset glyph separator and uses tighter spacing; Minimal mode shows only the percentage beside a shorter bar. Full quota/reset wording remains available in the tray tooltip.
