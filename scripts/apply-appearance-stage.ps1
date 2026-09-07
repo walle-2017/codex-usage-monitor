@@ -1,3 +1,4 @@
+# Temporary branch-only patch helper; removed before merge.
 $ErrorActionPreference = 'Stop'
 
 $path = 'src/window.rs'
