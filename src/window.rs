@@ -1410,16 +1410,7 @@ const SEGMENT_GAP: i32 = 1;
 const SEGMENT_COUNT: i32 = 10;
 
 const LEFT_DIVIDER_W: i32 = 3;
-const DIVIDER_RIGHT_MARGIN: i32 = 10;
-const LABEL_WIDTH: i32 = 18;
-const LABEL_RIGHT_MARGIN: i32 = 10;
-const BAR_RIGHT_MARGIN: i32 = 4;
-const TEXT_WIDTH: i32 = 62;
-const SIMPLIFIED_CHINESE_LABEL_WIDTH: i32 = 20;
-const SIMPLIFIED_CHINESE_TEXT_WIDTH: i32 = 126;
-const MODEL_RIGHT_MARGIN: i32 = 3;
 const RIGHT_MARGIN: i32 = 1;
-const WIDGET_HEIGHT: i32 = 46;
 
 fn is_drag_handle_point(client_x: i32, client_y: i32) -> bool {
     let divider_h = sc(18);

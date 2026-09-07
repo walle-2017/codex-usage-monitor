@@ -34,7 +34,6 @@ pub struct StyleMetrics {
 }
 
 impl AppearancePreset {
-    pub const ALL: [Self; 3] = [Self::Default, Self::Compact, Self::Minimal];
 
     pub fn metrics(self) -> StyleMetrics {
         match self {
