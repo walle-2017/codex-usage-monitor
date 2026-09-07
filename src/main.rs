@@ -5,6 +5,7 @@ mod localization;
 mod models;
 mod native_interop;
 mod poller;
+mod system_proxy;
 mod theme;
 mod tray_icon;
 mod updater;
@@ -32,6 +33,8 @@ fn main() {
             }
         }
     }
+
+    system_proxy::apply_windows_system_proxy_env();
 
     if let Some(exit_code) = updater::handle_cli_mode(&args) {
         if diagnose_enabled {

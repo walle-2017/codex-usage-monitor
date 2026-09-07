@@ -4,7 +4,7 @@
 
 ## 1. Fork 目的
 
-本 Fork 的主要目的不是扩展 Provider 功能，而是针对 Windows 环境下的稳定性风险，对 Codex Token 刷新逻辑进行收敛。
+本 Fork 的主要目的不是扩展 Provider 功能，而是针对 Windows 环境下的稳定性和网络适配问题进行收敛。
 
 此前使用其他 Codex 额度监控工具时，监控程序频繁启动 `codex.exe` / `codex app-server`，曾与本机出现的 LSASS / RPCRT4 崩溃和系统强制重启高度相关。因此本 Fork 的核心原则是：
 
@@ -12,13 +12,16 @@
 
 本 Fork 仍然读取本地 Codex 登录凭证，并通过 HTTPS 请求 ChatGPT Codex usage 接口获取额度，但不会在认证失败时尝试拉起 `codex.exe`、`codex.cmd` 或 `codex.ps1`。
 
+另外，为适配 FClash / Clash 等通过 Windows“系统代理”工作的网络环境，本 Fork 默认读取 Windows 当前用户的手动系统代理配置，使额度查询无需额外设置 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。
+
 ## 2. 当前相对 upstream 的核心差异
 
-最终保留的差异只有三类：
+最终保留的主要差异有四类：
 
 1. 修改 `src/poller.rs`，彻底移除 Codex CLI 自动刷新 Token 的实现和调用路径。
 2. 新增 `scripts/assert-no-codex-cli-refresh.ps1`，作为安全回归检查，防止未来重新引入 Codex CLI 启动逻辑。
 3. 新增 `.github/workflows/safe-build.yml`，在 Windows Runner 上执行安全检查、Rust 测试和 Release 构建，并生成 Windows x64 Artifact。
+4. 新增 `src/system_proxy.rs`，在没有显式代理环境变量时自动读取 Windows 当前用户的手动系统代理并提供给现有 HTTP 客户端。
 
 ## 3. upstream 原始 Codex Token 刷新行为
 
@@ -66,6 +69,8 @@ Err(PollError::AuthRequired) => {
 %USERPROFILE%\.codex\auth.json
         ↓
 读取 access_token / account_id
+        ↓
+HTTP 客户端（显式代理环境变量 / Windows 系统代理 / 直连）
         ↓
 HTTPS
         ↓
@@ -182,9 +187,101 @@ show_antigravity: false,
 
 因此首次运行默认只查询 Codex。其他 Provider 需要从托盘菜单 `Monitored services` 手动开启。
 
-本 Fork 只修改了 **Codex** 自动 Token 刷新逻辑；Claude Code 和 Antigravity 的既有行为未因本次安全修改而改变。
+本 Fork 只修改了 **Codex** 自动 Token 刷新逻辑；Claude Code 和 Antigravity 的既有认证行为未因本次安全修改而改变。
 
-## 8. 安全回归检查
+## 8. Windows 系统代理支持
+
+新增：
+
+```text
+src/system_proxy.rs
+```
+
+项目原本的 `ureq` 已启用 `proxy-from-env`，因此显式配置以下环境变量时仍按原方式工作：
+
+```text
+HTTPS_PROXY
+HTTP_PROXY
+ALL_PROXY
+```
+
+本 Fork 在程序启动时增加 Windows 当前用户手动代理读取，代理优先级为：
+
+```text
+1. HTTPS_PROXY / HTTP_PROXY / ALL_PROXY
+        ↓ 未配置
+2. Windows 当前用户手动系统代理
+        ↓ 未启用或不可读取
+3. 直连
+```
+
+Windows 系统代理读取位置：
+
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings
+```
+
+使用：
+
+```text
+ProxyEnable
+ProxyServer
+```
+
+支持常见的统一代理格式：
+
+```text
+127.0.0.1:7890
+```
+
+以及按协议拆分格式：
+
+```text
+http=127.0.0.1:7890;https=127.0.0.1:7891
+```
+
+对于 HTTPS Provider 请求，协议拆分配置优先选择 `https=`；没有 `https=` 时回退到 `http=`。没有显式 URL scheme 的本地代理地址按 HTTP CONNECT 代理处理，例如：
+
+```text
+127.0.0.1:7890
+```
+
+转换为：
+
+```text
+http://127.0.0.1:7890
+```
+
+当检测到 Windows 系统代理后，程序仅在自身进程环境中设置：
+
+```text
+HTTPS_PROXY
+HTTP_PROXY
+```
+
+不会修改 Windows 系统配置，也不会写回注册表。
+
+诊断模式下只记录：
+
+```text
+using Windows system proxy
+```
+
+不会输出完整代理 URL，避免极端情况下代理字符串中的认证信息进入日志。
+
+如果用户已经显式设置代理环境变量，则 Windows 系统代理不会覆盖它们。
+
+当前明确不支持自动解析：
+
+```text
+PAC
+WPAD
+Automatically detect settings
+```
+
+本功能主要针对 FClash / Clash 等开启 Windows 手动“系统代理”的场景。
+
+## 9. 安全回归检查
 
 新增：
 
@@ -208,7 +305,7 @@ Err(PollError::TokenExpired)
 
 若以后同步 upstream 时重新引入上述 Codex CLI 启动逻辑，安全检查会失败。
 
-## 9. Windows CI / Build
+## 10. Windows CI / Build
 
 新增：
 
@@ -250,9 +347,9 @@ codex-usage.exe
 codex-usage.exe.sha256
 ```
 
-## 10. 后续同步 upstream 时的重点检查
+## 11. 后续同步 upstream 时的重点检查
 
-以后从 `upstream-ray/codex-usage-monitor` 合并新版本时，重点检查 `src/poller.rs`。
+以后从 `upstream-ray/codex-usage-monitor` 合并新版本时，重点检查 `src/poller.rs` 以及网络客户端初始化方式。
 
 不要直接恢复以下模式：
 
@@ -274,6 +371,8 @@ codex app-server
 codex --version
 ```
 
+如果 upstream 调整 HTTP 客户端或移除 `ureq` 的 `proxy-from-env` 支持，需要同步确认 `src/system_proxy.rs` 注入的 `HTTPS_PROXY` / `HTTP_PROXY` 仍然能够被实际请求路径使用。
+
 同步完成后至少确认：
 
 ```text
@@ -288,7 +387,7 @@ cargo build --release
 
 > **Codex 额度轮询不得主动创建 Codex CLI 子进程。**
 
-## 11. 手工快速验证
+## 12. 手工快速验证
 
 源码级搜索建议：
 
@@ -309,9 +408,36 @@ cargo test
 cargo build --release
 ```
 
-运行时若要进一步确认，可以使用 Process Monitor、Sysmon 或 WMI 进程启动跟踪观察 `codex.exe` 的 Parent Process，确认 `codex-usage.exe` 没有创建 Codex CLI 子进程。
+检查 Windows 当前用户代理配置：
 
-## 12. 本次修改的关键 Git 记录
+```powershell
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' `
+  -Name ProxyEnable,ProxyServer
+```
+
+运行诊断模式：
+
+```powershell
+.\codex-usage.exe --diagnose
+```
+
+日志位置：
+
+```text
+%TEMP%\codex-usage.log
+```
+
+启用 Windows 手动系统代理时，应能看到：
+
+```text
+using Windows system proxy
+```
+
+运行时若要进一步确认 Codex CLI 安全隔离，可以使用 Process Monitor、Sysmon 或 WMI 进程启动跟踪观察 `codex.exe` 的 Parent Process，确认 `codex-usage.exe` 没有创建 Codex CLI 子进程。
+
+## 13. 关键 Git 记录
+
+### Codex CLI 安全修改
 
 工作分支：
 
@@ -339,16 +465,26 @@ PR #1 - Disable Codex CLI token refresh in usage monitor
 Disable automatic Codex CLI token refresh
 ```
 
-本次安全修改最终相对 Fork 基线保留的文件差异为：
+### Windows 系统代理修改
+
+工作分支：
 
 ```text
-.github/workflows/safe-build.yml
-scripts/assert-no-codex-cli-refresh.ps1
-src/poller.rs
+windows-system-proxy
 ```
 
-临时使用过的 `scripts/apply-safe-codex-patch.ps1` 已在最终合并前删除，当前仓库不再依赖该脚本。
+PR：
+
+```text
+PR #2 - Use Windows system proxy by default
+```
+
+主要新增文件：
+
+```text
+src/system_proxy.rs
+```
 
 ---
 
-后续维护本 Fork 时，应优先阅读本文档，再查看 `src/poller.rs`、安全检查脚本和 `safe-build.yml`，即可快速了解本 Fork 与 upstream 最关键的行为差异。
+后续维护本 Fork 时，应优先阅读本文档，再查看 `src/poller.rs`、`src/system_proxy.rs`、安全检查脚本和 `safe-build.yml`，即可快速了解本 Fork 与 upstream 最关键的行为差异。
