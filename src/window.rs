@@ -17,6 +17,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::appearance::{self, AppearancePreset};
 use crate::diagnose;
 use crate::localization::{self, LanguageId, Strings};
 use crate::models::AppUsageData;
@@ -55,6 +56,7 @@ struct AppState {
     language_override: Option<LanguageId>,
     language: LanguageId,
     install_channel: InstallChannel,
+    appearance_preset: AppearancePreset,
 
     session_percent: f64,
     session_text: String,
@@ -144,6 +146,9 @@ const IDM_ALERT_OFF: u16 = 80;
 const IDM_ALERT_10: u16 = 81;
 const IDM_ALERT_20: u16 = 82;
 const IDM_ALERT_30: u16 = 83;
+const IDM_APPEARANCE_DEFAULT: u16 = 90;
+const IDM_APPEARANCE_COMPACT: u16 = 91;
+const IDM_APPEARANCE_MINIMAL: u16 = 92;
 
 const WM_DPICHANGED_MSG: u32 = 0x02E0;
 const WM_APP_UPDATE_CHECK_COMPLETE: u32 = WM_APP + 2;
@@ -332,6 +337,8 @@ struct SettingsFile {
     last_update_check_unix: Option<u64>,
     #[serde(default = "default_widget_visible")]
     widget_visible: bool,
+    #[serde(default)]
+    appearance_preset: AppearancePreset,
     #[serde(default = "default_show_claude_code")]
     show_claude_code: bool,
     #[serde(default = "default_show_codex")]
@@ -357,6 +364,7 @@ impl Default for SettingsFile {
             language: None,
             last_update_check_unix: None,
             widget_visible: true,
+            appearance_preset: AppearancePreset::Compact,
             show_claude_code: false,
             show_codex: true,
             show_antigravity: false,
@@ -483,6 +491,7 @@ fn save_state_settings() {
                 .map(|language| language.code().to_string()),
             last_update_check_unix: s.last_update_check_unix,
             widget_visible: s.widget_visible,
+            appearance_preset: s.appearance_preset,
             show_claude_code: s.show_claude_code,
             show_codex: s.show_codex,
             show_antigravity: s.show_antigravity,
@@ -689,45 +698,54 @@ fn append_quota_alert(
     });
 }
 
+fn full_usage_line(
+    section: &crate::models::UsageSection,
+    language: LanguageId,
+    strings: Strings,
+    window: poller::UsageWindowKind,
+) -> String {
+    poller::format_line(
+        section,
+        strings,
+        language == LanguageId::SimplifiedChinese,
+        window,
+    )
+}
+
 fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
     let state = lock_state();
     match state.as_ref() {
         Some(s) if s.last_poll_ok => {
             let mut services = Vec::new();
             let strings = s.language.strings();
+            let data = s.data.as_ref()?;
             if s.show_claude_code {
-                services.push(service_tooltip(
-                    strings.claude_code_model,
-                    &s.session_text,
-                    &s.weekly_text,
-                    s.show_session_window,
-                    s.show_weekly_window,
-                ));
+                if let Some(usage) = data.claude_code.as_ref() {
+                    let session = full_usage_line(&usage.session, s.language, strings, poller::UsageWindowKind::Session);
+                    let weekly = full_usage_line(&usage.weekly, s.language, strings, poller::UsageWindowKind::Weekly);
+                    services.push(service_tooltip(strings.claude_code_model, &session, &weekly, s.show_session_window, s.show_weekly_window));
+                }
             }
             if s.show_codex {
-                services.push(service_tooltip(
-                    strings.codex_model,
-                    &s.codex_session_text,
-                    &s.codex_weekly_text,
-                    s.show_session_window,
-                    s.show_weekly_window,
-                ));
+                if let Some(usage) = data.codex.as_ref() {
+                    let session = full_usage_line(&usage.session, s.language, strings, poller::UsageWindowKind::Session);
+                    let weekly = full_usage_line(&usage.weekly, s.language, strings, poller::UsageWindowKind::Weekly);
+                    services.push(service_tooltip(strings.codex_model, &session, &weekly, s.show_session_window, s.show_weekly_window));
+                }
             }
             if s.show_antigravity {
-                services.push(service_tooltip(
-                    strings.antigravity_model,
-                    &s.antigravity_session_text,
-                    &s.antigravity_weekly_text,
-                    s.show_session_window,
-                    s.show_weekly_window,
-                ));
+                if let Some(usage) = data.antigravity.as_ref() {
+                    let session = full_usage_line(&usage.session, s.language, strings, poller::UsageWindowKind::Session);
+                    let weekly = if usage.weekly.resets_at.is_none() && usage.weekly.percentage == 0.0 {
+                        "--".to_string()
+                    } else {
+                        full_usage_line(&usage.weekly, s.language, strings, poller::UsageWindowKind::Weekly)
+                    };
+                    services.push(service_tooltip(strings.antigravity_model, &session, &weekly, s.show_session_window, s.show_weekly_window));
+                }
             }
             Some(tray_icon::TrayIconData {
-                tooltip: if services.is_empty() {
-                    strings.window_title.to_string()
-                } else {
-                    services.join("\n")
-                },
+                tooltip: if services.is_empty() { strings.window_title.to_string() } else { services.join("\n") },
             })
         }
         Some(s) => {
@@ -737,9 +755,7 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
                 (false, false, true) => strings.antigravity_window_title,
                 _ => strings.window_title,
             };
-            Some(tray_icon::TrayIconData {
-                tooltip: tooltip.to_string(),
-            })
+            Some(tray_icon::TrayIconData { tooltip: tooltip.to_string() })
         }
         None => None,
     }
@@ -917,24 +933,18 @@ fn refresh_usage_texts(state: &mut AppState) {
         return;
     }
 
-    let strings = state.language.strings();
-    let show_remaining = state.language == LanguageId::SimplifiedChinese;
+    let preset = state.appearance_preset;
+    let language = state.language;
     let Some(data) = state.data.as_ref() else {
         return;
     };
 
     if let Some(claude_code) = data.claude_code.as_ref() {
-        state.session_text = poller::format_line(
-            &claude_code.session,
-            strings,
-            show_remaining,
-            poller::UsageWindowKind::Session,
+        state.session_text = appearance::taskbar_line(
+            preset, language, &claude_code.session, poller::UsageWindowKind::Session,
         );
-        state.weekly_text = poller::format_line(
-            &claude_code.weekly,
-            strings,
-            show_remaining,
-            poller::UsageWindowKind::Weekly,
+        state.weekly_text = appearance::taskbar_line(
+            preset, language, &claude_code.weekly, poller::UsageWindowKind::Weekly,
         );
     } else if state.show_claude_code {
         state.session_text = "!".to_string();
@@ -942,17 +952,11 @@ fn refresh_usage_texts(state: &mut AppState) {
     }
 
     if let Some(codex) = data.codex.as_ref() {
-        state.codex_session_text = poller::format_line(
-            &codex.session,
-            strings,
-            show_remaining,
-            poller::UsageWindowKind::Session,
+        state.codex_session_text = appearance::taskbar_line(
+            preset, language, &codex.session, poller::UsageWindowKind::Session,
         );
-        state.codex_weekly_text = poller::format_line(
-            &codex.weekly,
-            strings,
-            show_remaining,
-            poller::UsageWindowKind::Weekly,
+        state.codex_weekly_text = appearance::taskbar_line(
+            preset, language, &codex.weekly, poller::UsageWindowKind::Weekly,
         );
     } else if state.show_codex {
         state.codex_session_text = "!".to_string();
@@ -960,21 +964,15 @@ fn refresh_usage_texts(state: &mut AppState) {
     }
 
     if let Some(antigravity) = data.antigravity.as_ref() {
-        state.antigravity_session_text = poller::format_line(
-            &antigravity.session,
-            strings,
-            show_remaining,
-            poller::UsageWindowKind::Session,
+        state.antigravity_session_text = appearance::taskbar_line(
+            preset, language, &antigravity.session, poller::UsageWindowKind::Session,
         );
         state.antigravity_weekly_text =
             if antigravity.weekly.resets_at.is_none() && antigravity.weekly.percentage == 0.0 {
                 "--".to_string()
             } else {
-                poller::format_line(
-                    &antigravity.weekly,
-                    strings,
-                    show_remaining,
-                    poller::UsageWindowKind::Weekly,
+                appearance::taskbar_line(
+                    preset, language, &antigravity.weekly, poller::UsageWindowKind::Weekly,
                 )
             };
     } else if state.show_antigravity {
@@ -1412,20 +1410,11 @@ const SEGMENT_GAP: i32 = 1;
 const SEGMENT_COUNT: i32 = 10;
 
 const LEFT_DIVIDER_W: i32 = 3;
-const DIVIDER_RIGHT_MARGIN: i32 = 10;
-const LABEL_WIDTH: i32 = 18;
-const LABEL_RIGHT_MARGIN: i32 = 10;
-const BAR_RIGHT_MARGIN: i32 = 4;
-const TEXT_WIDTH: i32 = 62;
-const SIMPLIFIED_CHINESE_LABEL_WIDTH: i32 = 20;
-const SIMPLIFIED_CHINESE_TEXT_WIDTH: i32 = 126;
-const MODEL_RIGHT_MARGIN: i32 = 3;
 const RIGHT_MARGIN: i32 = 1;
-const WIDGET_HEIGHT: i32 = 46;
 
 fn is_drag_handle_point(client_x: i32, client_y: i32) -> bool {
-    let divider_h = sc(25);
-    let divider_top = (sc(WIDGET_HEIGHT) - divider_h) / 2;
+    let divider_h = sc(18);
+    let divider_top = (sc(current_appearance_preset().metrics().widget_height) - divider_h) / 2;
     client_x >= 0
         && client_x < sc(LEFT_DIVIDER_W)
         && client_y >= divider_top
@@ -1446,23 +1435,30 @@ fn active_model_count(show_claude_code: bool, show_codex: bool, show_antigravity
     (show_claude_code as i32 + show_codex as i32 + show_antigravity as i32).max(1)
 }
 
-fn row_bar_segment_count(active_models: i32) -> i32 {
+fn current_appearance_preset() -> AppearancePreset {
+    let state = lock_state();
+    state.as_ref().map(|s| s.appearance_preset).unwrap_or_default()
+}
+
+fn row_bar_segment_count(active_models: i32, preset: AppearancePreset) -> i32 {
     match active_models {
-        1 => SEGMENT_COUNT,
-        2 => 5,
-        _ => 4,
+        1 => match preset {
+            AppearancePreset::Default => SEGMENT_COUNT,
+            AppearancePreset::Compact => 8,
+            AppearancePreset::Minimal => 6,
+        },
+        2 => match preset {
+            AppearancePreset::Default => 5,
+            AppearancePreset::Compact => 4,
+            AppearancePreset::Minimal => 3,
+        },
+        _ => 3,
     }
 }
 
-fn usage_layout_widths(language: LanguageId) -> (i32, i32) {
-    if language == LanguageId::SimplifiedChinese {
-        (
-            SIMPLIFIED_CHINESE_LABEL_WIDTH,
-            SIMPLIFIED_CHINESE_TEXT_WIDTH,
-        )
-    } else {
-        (LABEL_WIDTH, TEXT_WIDTH)
-    }
+fn usage_layout_widths(_language: LanguageId, preset: AppearancePreset) -> (i32, i32) {
+    let metrics = preset.metrics();
+    (metrics.label_width, metrics.text_width + metrics.secondary_width)
 }
 
 fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 {
@@ -1473,47 +1469,52 @@ fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 
     }
 }
 
-fn total_widget_width_for(active_models: i32, language: LanguageId) -> i32 {
-    let bar_segments = row_bar_segment_count(active_models);
-    let (label_width, text_width) = usage_layout_widths(language);
+fn total_widget_width_for_preset(
+    active_models: i32,
+    language: LanguageId,
+    preset: AppearancePreset,
+) -> i32 {
+    let bar_segments = row_bar_segment_count(active_models, preset);
+    let (label_width, text_width) = usage_layout_widths(language, preset);
+    let metrics = preset.metrics();
     let model_width = (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * bar_segments - sc(SEGMENT_GAP)
-        + sc(BAR_RIGHT_MARGIN)
+        + sc(metrics.bar_right_margin)
         + sc(text_width);
 
     sc(LEFT_DIVIDER_W)
-        + sc(DIVIDER_RIGHT_MARGIN)
+        + sc(metrics.divider_right_margin)
         + sc(label_width)
-        + sc(LABEL_RIGHT_MARGIN)
+        + sc(metrics.label_right_margin)
         + model_width * active_models
-        + sc(MODEL_RIGHT_MARGIN) * (active_models - 1)
+        + sc(metrics.model_right_margin) * (active_models - 1)
         + sc(RIGHT_MARGIN)
 }
 
+fn total_widget_width_for(active_models: i32, language: LanguageId) -> i32 {
+    total_widget_width_for_preset(active_models, language, AppearancePreset::Compact)
+}
+
 fn total_widget_width_for_state(state: &AppState) -> i32 {
-    total_widget_width_for(
-        active_model_count(
-            state.show_claude_code,
-            state.show_codex,
-            state.show_antigravity,
-        ),
+    total_widget_width_for_preset(
+        active_model_count(state.show_claude_code, state.show_codex, state.show_antigravity),
         state.language,
+        state.appearance_preset,
     )
 }
 
 fn total_widget_width() -> i32 {
-    let (active_models, language) = {
+    let (active_models, language, preset) = {
         let state = lock_state();
         state
             .as_ref()
-            .map(|s| {
-                (
-                    active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity),
-                    s.language,
-                )
-            })
-            .unwrap_or((1, LanguageId::English))
+            .map(|s| (
+                active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity),
+                s.language,
+                s.appearance_preset,
+            ))
+            .unwrap_or((1, LanguageId::English, AppearancePreset::Compact))
     };
-    total_widget_width_for(active_models, language)
+    total_widget_width_for_preset(active_models, language, preset)
 }
 
 fn claude_accent_color() -> Color {
@@ -1553,6 +1554,29 @@ fn antigravity_usage_text_color(is_dark: bool) -> Color {
         Color::from_hex("#8AB4F8")
     } else {
         Color::from_hex("#1967D2")
+    }
+}
+
+fn codex_quota_status_color(is_dark: bool, displayed_percent: f64) -> Color {
+    let language = {
+        let state = lock_state();
+        state.as_ref().map(|s| s.language).unwrap_or(LanguageId::English)
+    };
+    let used = if language == LanguageId::SimplifiedChinese {
+        100.0 - displayed_percent
+    } else {
+        displayed_percent
+    };
+    match appearance::quota_tone(used) {
+        appearance::QuotaTone::Normal => {
+            if is_dark { Color::from_hex("#5AA9E6") } else { Color::from_hex("#2563EB") }
+        }
+        appearance::QuotaTone::Warning => {
+            if is_dark { Color::from_hex("#F4C95D") } else { Color::from_hex("#A16207") }
+        }
+        appearance::QuotaTone::Critical => {
+            if is_dark { Color::from_hex("#FF6B6B") } else { Color::from_hex("#C62828") }
+        }
     }
 }
 
@@ -1647,7 +1671,7 @@ pub fn run() {
             0,
             0,
             total_widget_width_for(initial_model_count, language),
-            sc(WIDGET_HEIGHT),
+            sc(AppearancePreset::Compact.metrics().widget_height),
             HWND::default(),
             HMENU::default(),
             hinstance,
@@ -1689,6 +1713,7 @@ pub fn run() {
                 language_override,
                 language,
                 install_channel,
+                appearance_preset: settings.appearance_preset,
                 session_percent: 0.0,
                 session_text: "--".to_string(),
                 weekly_percent: 0.0,
@@ -1879,18 +1904,18 @@ fn render_layered() {
     }
 
     let width = total_widget_width();
-    let height = sc(WIDGET_HEIGHT);
+    let height = sc(current_appearance_preset().metrics().widget_height);
 
     let accent = claude_accent_color();
     let codex_accent = codex_accent_color(is_dark);
     let antigravity_accent = antigravity_accent_color();
     let track = if is_dark {
-        Color::from_hex("#444444")
+        Color::from_hex("#363A3F")
     } else {
         Color::from_hex("#AAAAAA")
     };
     let text_color = if is_dark {
-        Color::from_hex("#888888")
+        Color::from_hex("#A0A0A0")
     } else {
         Color::from_hex("#404040")
     };
@@ -2050,7 +2075,8 @@ fn paint_content(
         let codex_weekly_pct = usage_percent_for_display(language, codex_weekly_pct);
         let antigravity_session_pct = usage_percent_for_display(language, antigravity_session_pct);
         let antigravity_weekly_pct = usage_percent_for_display(language, antigravity_weekly_pct);
-        let (label_width, text_width) = usage_layout_widths(language);
+        let preset = current_appearance_preset();
+        let (label_width, text_width) = usage_layout_widths(language, preset);
 
         let client_rect = RECT {
             left: 0,
@@ -2064,7 +2090,7 @@ fn paint_content(
         let _ = DeleteObject(bg_brush);
 
         // Left divider
-        let divider_h = sc(25);
+        let divider_h = sc(18);
         let divider_top = (height - divider_h) / 2;
         let divider_bottom = divider_top + divider_h;
 
@@ -2100,9 +2126,9 @@ fn paint_content(
         FillRect(hdc, &right_rect, right_brush);
         let _ = DeleteObject(right_brush);
 
-        let content_x = sc(LEFT_DIVIDER_W) + sc(DIVIDER_RIGHT_MARGIN);
-        let row2_y = height - sc(5) - sc(SEGMENT_H);
-        let row1_y = row2_y - sc(10) - sc(SEGMENT_H);
+        let content_x = sc(LEFT_DIVIDER_W) + sc(preset.metrics().divider_right_margin);
+        let row2_y = height - sc(4) - sc(SEGMENT_H);
+        let row1_y = row2_y - sc(preset.metrics().row_gap) - sc(SEGMENT_H);
         let single_row_y = (height - sc(SEGMENT_H)) / 2;
 
         let _ = SetBkMode(hdc, TRANSPARENT);
@@ -2110,7 +2136,7 @@ fn paint_content(
 
         let font_name = native_interop::wide_str("Segoe UI");
         let font = CreateFontW(
-            sc(-12),
+            sc(preset.metrics().font_height),
             0,
             0,
             0,
@@ -2621,7 +2647,7 @@ fn position_at_taskbar() {
         save_state_settings();
     }
 
-    let widget_height = sc(WIDGET_HEIGHT);
+    let widget_height = sc(current_appearance_preset().metrics().widget_height);
     let y = compute_anchor_y(anchor_top, anchor_height, widget_height);
     if embedded {
         // Child window: coordinates relative to parent (taskbar)
@@ -2906,7 +2932,7 @@ unsafe extern "system" fn wnd_proc(
                             let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
                             let anchor_top = taskbar_rect.top;
                             let anchor_height = taskbar_height;
-                            let widget_height = sc(WIDGET_HEIGHT);
+                            let widget_height = sc(current_appearance_preset().metrics().widget_height);
                             let y = compute_anchor_y(anchor_top, anchor_height, widget_height);
                             let x = if embedded {
                                 tray_left - taskbar_rect.left - widget_width - new_offset
@@ -3183,6 +3209,24 @@ unsafe extern "system" fn wnd_proc(
                         do_poll(sh);
                     });
                 }
+                IDM_APPEARANCE_DEFAULT | IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
+                    let preset = match id {
+                        IDM_APPEARANCE_DEFAULT => AppearancePreset::Default,
+                        IDM_APPEARANCE_MINIMAL => AppearancePreset::Minimal,
+                        _ => AppearancePreset::Compact,
+                    };
+                    {
+                        let mut state = lock_state();
+                        if let Some(s) = state.as_mut() {
+                            s.appearance_preset = preset;
+                            refresh_usage_texts(s);
+                        }
+                    }
+                    save_state_settings();
+                    position_at_taskbar();
+                    render_layered();
+                    sync_tray_icons(hwnd);
+                }
                 IDM_LANG_SYSTEM
                 | IDM_LANG_ENGLISH
                 | IDM_LANG_DUTCH
@@ -3271,6 +3315,7 @@ fn show_context_menu(hwnd: HWND) {
             show_session_window,
             show_weekly_window,
             alert_threshold_percent,
+            appearance_preset,
         ) = {
             let state = lock_state();
             match state.as_ref() {
@@ -3289,6 +3334,7 @@ fn show_context_menu(hwnd: HWND) {
                     s.show_session_window,
                     s.show_weekly_window,
                     s.alert_threshold_percent,
+                    s.appearance_preset,
                 ),
                 None => (
                     POLL_15_MIN,
@@ -3305,6 +3351,7 @@ fn show_context_menu(hwnd: HWND) {
                     true,
                     true,
                     0,
+                    AppearancePreset::Compact,
                 ),
             }
         };
@@ -3515,6 +3562,37 @@ fn show_context_menu(hwnd: HWND) {
             PCWSTR::from_raw(alert_label.as_ptr()),
         );
 
+        // Appearance submenu
+        let appearance_menu = CreatePopupMenu().unwrap();
+        let appearance_items = [
+            (IDM_APPEARANCE_DEFAULT, AppearancePreset::Default),
+            (IDM_APPEARANCE_COMPACT, AppearancePreset::Compact),
+            (IDM_APPEARANCE_MINIMAL, AppearancePreset::Minimal),
+        ];
+        for (id, preset) in appearance_items {
+            let label = native_interop::wide_str(preset.menu_label(language));
+            let flags = if preset == appearance_preset {
+                MF_CHECKED
+            } else {
+                MENU_ITEM_FLAGS(0)
+            };
+            let _ = AppendMenuW(
+                appearance_menu,
+                flags,
+                id as usize,
+                PCWSTR::from_raw(label.as_ptr()),
+            );
+        }
+        let appearance_label = native_interop::wide_str(
+            if language == LanguageId::SimplifiedChinese { "外观" } else { "Appearance" }
+        );
+        let _ = AppendMenuW(
+            menu,
+            MF_POPUP,
+            appearance_menu.0 as usize,
+            PCWSTR::from_raw(appearance_label.as_ptr()),
+        );
+
         // Settings submenu
         let settings_menu = CreatePopupMenu().unwrap();
 
@@ -3704,12 +3782,12 @@ fn paint(hdc: HDC, hwnd: HWND) {
     let codex_accent = codex_accent_color(is_dark);
     let antigravity_accent = antigravity_accent_color();
     let track = if is_dark {
-        Color::from_hex("#444444")
+        Color::from_hex("#363A3F")
     } else {
         Color::from_hex("#AAAAAA")
     };
     let text_color = if is_dark {
-        Color::from_hex("#888888")
+        Color::from_hex("#A0A0A0")
     } else {
         Color::from_hex("#404040")
     };
@@ -3798,14 +3876,22 @@ fn draw_row(
 ) {
     let seg_h = sc(SEGMENT_H);
     let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
-    let segment_count = row_bar_segment_count(active_models);
+    let preset = current_appearance_preset();
+    let segment_count = row_bar_segment_count(active_models, preset);
     let use_model_text_colors = active_models > 1;
     let claude_value_color = if use_model_text_colors {
         claude_usage_text_color(is_dark)
     } else {
         *text_color
     };
-    let codex_value_color = if use_model_text_colors {
+    let codex_bar_color = if active_models == 1 && show_codex {
+        codex_quota_status_color(is_dark, codex_percent)
+    } else {
+        *codex_accent
+    };
+    let codex_value_color = if active_models == 1 && show_codex {
+        codex_bar_color
+    } else if use_model_text_colors {
         codex_usage_text_color(is_dark)
     } else {
         *text_color
@@ -3832,7 +3918,7 @@ fn draw_row(
             DT_LEFT | DT_VCENTER | DT_SINGLELINE,
         );
 
-        let mut model_x = x + sc(label_width) + sc(LABEL_RIGHT_MARGIN);
+        let mut model_x = x + sc(label_width) + sc(preset.metrics().label_right_margin);
         if show_claude_code {
             draw_usage_bar(
                 hdc,
@@ -3846,7 +3932,7 @@ fn draw_row(
                 &claude_value_color,
                 text_width,
             );
-            model_x += model_usage_width(segment_count, text_width) + sc(MODEL_RIGHT_MARGIN);
+            model_x += model_usage_width(segment_count, text_width, preset) + sc(preset.metrics().model_right_margin);
         }
         if show_codex {
             draw_usage_bar(
@@ -3856,12 +3942,12 @@ fn draw_row(
                 segment_count,
                 codex_percent,
                 codex_text,
-                codex_accent,
+                &codex_bar_color,
                 track,
                 &codex_value_color,
                 text_width,
             );
-            model_x += model_usage_width(segment_count, text_width) + sc(MODEL_RIGHT_MARGIN);
+            model_x += model_usage_width(segment_count, text_width, preset) + sc(preset.metrics().model_right_margin);
         }
         if show_antigravity {
             draw_usage_bar(
@@ -3880,9 +3966,9 @@ fn draw_row(
     }
 }
 
-fn model_usage_width(segment_count: i32, text_width: i32) -> i32 {
+fn model_usage_width(segment_count: i32, text_width: i32, preset: AppearancePreset) -> i32 {
     (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count - sc(SEGMENT_GAP)
-        + sc(BAR_RIGHT_MARGIN)
+        + sc(preset.metrics().bar_right_margin)
         + sc(text_width)
 }
 
@@ -3902,15 +3988,17 @@ fn draw_usage_bar(
     let seg_h = sc(SEGMENT_H);
     let seg_gap = sc(SEGMENT_GAP);
     let bar_width = segment_count * (seg_w + seg_gap) - seg_gap;
-    let corner_r = seg_h / 2;
+    let bar_h = sc(current_appearance_preset().metrics().bar_height).min(seg_h);
+    let bar_y = y + (seg_h - bar_h) / 2;
+    let corner_r = bar_h / 2;
 
     unsafe {
         let percent_clamped = percent.clamp(0.0, 100.0);
         let bar_rect = RECT {
             left: bar_x,
-            top: y,
+            top: bar_y,
             right: bar_x + bar_width,
-            bottom: y + seg_h,
+            bottom: bar_y + bar_h,
         };
         draw_rounded_rect(hdc, &bar_rect, track, corner_r);
 
@@ -3918,9 +4006,9 @@ fn draw_usage_bar(
         if fill_width > 0 {
             let fill_rect = RECT {
                 left: bar_x,
-                top: y,
+                top: bar_y,
                 right: bar_x + fill_width,
-                bottom: y + seg_h,
+                bottom: bar_y + bar_h,
             };
             let rgn = CreateRoundRectRgn(
                 bar_rect.left,
@@ -3938,21 +4026,97 @@ fn draw_usage_bar(
             let _ = DeleteObject(rgn);
         }
 
-        let text_x = bar_x + bar_width + sc(BAR_RIGHT_MARGIN);
-        let mut text_wide: Vec<u16> = text.encode_utf16().collect();
-        let mut text_rect = RECT {
+        let text_x = bar_x + bar_width + sc(current_appearance_preset().metrics().bar_right_margin);
+        draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
+    }
+}
+
+fn draw_usage_value_text(
+    hdc: HDC,
+    text_x: i32,
+    y: i32,
+    row_height: i32,
+    text: &str,
+    primary_color: &Color,
+    total_text_width: i32,
+) {
+    let preset = current_appearance_preset();
+    let metrics = preset.metrics();
+    let (primary, secondary) = text
+        .split_once("  ")
+        .map(|(primary, secondary)| (primary, Some(secondary)))
+        .unwrap_or((text, None));
+
+    unsafe {
+        let font_name = native_interop::wide_str("Segoe UI");
+        let primary_font = CreateFontW(
+            sc(metrics.value_font_height),
+            0, 0, 0,
+            FW_SEMIBOLD.0 as i32,
+            0, 0, 0,
+            DEFAULT_CHARSET.0 as u32,
+            OUT_TT_PRECIS.0 as u32,
+            CLIP_DEFAULT_PRECIS.0 as u32,
+            CLEARTYPE_QUALITY.0 as u32,
+            (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
+            PCWSTR::from_raw(font_name.as_ptr()),
+        );
+        let old_font = SelectObject(hdc, primary_font);
+        let _ = SetTextColor(hdc, COLORREF(primary_color.to_colorref()));
+        let mut primary_wide: Vec<u16> = primary.encode_utf16().collect();
+        let mut primary_rect = RECT {
             left: text_x,
             top: y,
-            right: text_x + sc(text_width),
-            bottom: y + seg_h,
+            right: text_x + sc(metrics.text_width),
+            bottom: y + row_height,
         };
-        let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
         let _ = DrawTextW(
             hdc,
-            &mut text_wide,
-            &mut text_rect,
+            &mut primary_wide,
+            &mut primary_rect,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE,
         );
+
+        if let Some(secondary) = secondary {
+            let secondary_font = CreateFontW(
+                sc(metrics.secondary_font_height),
+                0, 0, 0,
+                FW_NORMAL.0 as i32,
+                0, 0, 0,
+                DEFAULT_CHARSET.0 as u32,
+                OUT_TT_PRECIS.0 as u32,
+                CLIP_DEFAULT_PRECIS.0 as u32,
+                CLEARTYPE_QUALITY.0 as u32,
+                (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
+                PCWSTR::from_raw(font_name.as_ptr()),
+            );
+            SelectObject(hdc, secondary_font);
+            let secondary_color = if theme::is_dark_mode() {
+                Color::from_hex("#92979D")
+            } else {
+                Color::from_hex("#666666")
+            };
+            let _ = SetTextColor(hdc, COLORREF(secondary_color.to_colorref()));
+            let mut secondary_wide: Vec<u16> = secondary.encode_utf16().collect();
+            let secondary_x = text_x + sc(metrics.text_width);
+            let mut secondary_rect = RECT {
+                left: secondary_x,
+                top: y,
+                right: text_x + sc(total_text_width),
+                bottom: y + row_height,
+            };
+            let _ = DrawTextW(
+                hdc,
+                &mut secondary_wide,
+                &mut secondary_rect,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+            );
+            SelectObject(hdc, primary_font);
+            let _ = DeleteObject(secondary_font);
+        }
+
+        SelectObject(hdc, old_font);
+        let _ = DeleteObject(primary_font);
     }
 }
 
@@ -4024,6 +4188,27 @@ mod tests {
   "show_antigravity": false
 }}"#
         )
+    }
+
+    #[test]
+    fn legacy_settings_default_to_compact_appearance() {
+        let settings: SettingsFile = serde_json::from_str(r#"{"show_codex":true}"#).unwrap();
+        assert_eq!(
+            settings.appearance_preset,
+            crate::appearance::AppearancePreset::Compact
+        );
+    }
+
+    #[test]
+    fn explicit_minimal_appearance_round_trips() {
+        let mut settings = SettingsFile::default();
+        settings.appearance_preset = crate::appearance::AppearancePreset::Minimal;
+        let json = serde_json::to_string(&settings).unwrap();
+        let parsed: SettingsFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            parsed.appearance_preset,
+            crate::appearance::AppearancePreset::Minimal
+        );
     }
 
     #[test]
@@ -4210,3 +4395,10 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
+
+
+
+
+
+
+
