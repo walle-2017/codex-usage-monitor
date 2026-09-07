@@ -56,7 +56,7 @@ impl AppearancePreset {
             Self::Compact => StyleMetrics {
                 widget_height: 42,
                 bar_width: 82,
-                bar_value_width: 31,
+                bar_value_width: 34,
                 bar_height: 8,
                 label_width: 18,
                 label_right_margin: 6,
@@ -74,7 +74,7 @@ impl AppearancePreset {
             Self::Minimal => StyleMetrics {
                 widget_height: 40,
                 bar_width: 62,
-                bar_value_width: 31,
+                bar_value_width: 34,
                 bar_height: 7,
                 label_width: 18,
                 label_right_margin: 5,
