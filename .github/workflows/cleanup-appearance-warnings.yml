@@ -23,29 +23,45 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $appearance = Get-Content -Raw src/appearance.rs
-          $appearance = $appearance.Replace("    pub const ALL: [Self; 3] = [Self::Default, Self::Compact, Self::Minimal];`n`n", "")
-          Set-Content -Path src/appearance.rs -Value $appearance -Encoding utf8NoBOM
-
-          $window = Get-Content -Raw src/window.rs
-          $obsolete = @(
-            'const DIVIDER_RIGHT_MARGIN: i32 = 10;',
-            'const LABEL_WIDTH: i32 = 18;',
-            'const LABEL_RIGHT_MARGIN: i32 = 10;',
-            'const BAR_RIGHT_MARGIN: i32 = 4;',
-            'const TEXT_WIDTH: i32 = 62;',
-            'const SIMPLIFIED_CHINESE_LABEL_WIDTH: i32 = 20;',
-            'const SIMPLIFIED_CHINESE_TEXT_WIDTH: i32 = 126;',
-            'const MODEL_RIGHT_MARGIN: i32 = 3;',
-            'const WIDGET_HEIGHT: i32 = 46;'
-          )
-          foreach ($line in $obsolete) {
-            if (-not $window.Contains($line)) {
-              throw "Expected obsolete constant not found: $line"
-            }
-            $window = $window.Replace("$line`n", "")
+          $appearancePath = 'src/appearance.rs'
+          $appearance = Get-Content -Raw $appearancePath
+          $appearancePattern = '(?m)^\s*pub const ALL: \[Self; 3\] = \[Self::Default, Self::Compact, Self::Minimal\];\r?\n'
+          $appearanceUpdated = [regex]::Replace($appearance, $appearancePattern, '', 1)
+          if ($appearanceUpdated -eq $appearance) {
+            throw 'Expected AppearancePreset::ALL constant was not removed.'
           }
-          Set-Content -Path src/window.rs -Value $window -Encoding utf8NoBOM
+          Set-Content -Path $appearancePath -Value $appearanceUpdated -Encoding utf8NoBOM -NoNewline
+
+          $windowPath = 'src/window.rs'
+          $window = Get-Content -Raw $windowPath
+          $obsoleteNames = @(
+            'DIVIDER_RIGHT_MARGIN',
+            'LABEL_WIDTH',
+            'LABEL_RIGHT_MARGIN',
+            'BAR_RIGHT_MARGIN',
+            'TEXT_WIDTH',
+            'SIMPLIFIED_CHINESE_LABEL_WIDTH',
+            'SIMPLIFIED_CHINESE_TEXT_WIDTH',
+            'MODEL_RIGHT_MARGIN',
+            'WIDGET_HEIGHT'
+          )
+          foreach ($name in $obsoleteNames) {
+            $pattern = "(?m)^const $name: i32 = [^;]+;\r?\n"
+            $updated = [regex]::Replace($window, $pattern, '', 1)
+            if ($updated -eq $window) {
+              throw "Expected obsolete constant not removed: $name"
+            }
+            $window = $updated
+          }
+          Set-Content -Path $windowPath -Value $window -Encoding utf8NoBOM -NoNewline
+
+          $remaining = Select-String -Path $appearancePath,$windowPath -Pattern 'pub const ALL:|DIVIDER_RIGHT_MARGIN|LABEL_WIDTH|LABEL_RIGHT_MARGIN|BAR_RIGHT_MARGIN|TEXT_WIDTH|SIMPLIFIED_CHINESE_LABEL_WIDTH|SIMPLIFIED_CHINESE_TEXT_WIDTH|MODEL_RIGHT_MARGIN|WIDGET_HEIGHT'
+          if ($remaining) {
+            $remaining | ForEach-Object { Write-Error $_.Line }
+            throw 'Obsolete warning symbols remain after cleanup.'
+          }
+
+          git diff --check
 
       - name: Commit cleanup
         shell: pwsh
