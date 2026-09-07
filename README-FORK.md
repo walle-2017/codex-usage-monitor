@@ -281,7 +281,46 @@ Automatically detect settings
 
 本功能主要针对 FClash / Clash 等开启 Windows 手动“系统代理”的场景。
 
-## 9. 安全回归检查
+## 9. 任务栏外观预设
+
+本 Fork 新增 `src/appearance.rs`，提供三套内置任务栏外观，通过右键菜单 `外观 / Appearance` 即时切换：
+
+| 预设 | 任务栏表现 | 适用场景 |
+| --- | --- | --- |
+| 默认 | `19%  ↻13:40`，空间更宽松 | 信息完整 |
+| 紧凑 | `19%  13:40`，更细的进度条和更短宽度 | **默认推荐** |
+| 极简 | `19%`，隐藏任务栏重置时间 | 最小占用 |
+
+设置保存在：
+
+```text
+%APPDATA%\CodexUsage\settings.json
+```
+
+字段示例：
+
+```json
+{
+  "appearance_preset": "compact"
+}
+```
+
+旧配置中没有该字段时默认使用 `compact`，因此无需删除原有 `settings.json`。
+
+任务栏数值采用分层显示：百分比使用更醒目的字重和字号，重置时间使用更小、更弱的次级文字；极简模式虽然不在任务栏显示重置时间，但托盘 Tooltip 仍保留完整额度和重置说明。
+
+单独显示 Codex 时，进度条和主百分比会按**剩余额度**使用状态色：
+
+```text
+剩余 > 50%       正常
+剩余 20% ~ 50%   提醒
+剩余 < 20%       警示
+```
+
+多 Provider 同时显示时仍优先保留各 Provider 的识别色，避免不同服务难以区分。
+
+三套预设继续跟随 Windows 明/暗主题，不改变 Provider、Token、代理和轮询逻辑，也不会恢复 Codex CLI 自动刷新路径。
+## 10. 安全回归检查
 
 新增：
 
@@ -305,7 +344,7 @@ Err(PollError::TokenExpired)
 
 若以后同步 upstream 时重新引入上述 Codex CLI 启动逻辑，安全检查会失败。
 
-## 10. Windows CI / Build
+## 11. Windows CI / Build
 
 新增：
 
@@ -347,7 +386,7 @@ codex-usage.exe
 codex-usage.exe.sha256
 ```
 
-## 11. 后续同步 upstream 时的重点检查
+## 12. 后续同步 upstream 时的重点检查
 
 以后从 `upstream-ray/codex-usage-monitor` 合并新版本时，重点检查 `src/poller.rs` 以及网络客户端初始化方式。
 
@@ -387,7 +426,7 @@ cargo build --release
 
 > **Codex 额度轮询不得主动创建 Codex CLI 子进程。**
 
-## 12. 手工快速验证
+## 13. 手工快速验证
 
 源码级搜索建议：
 
@@ -435,7 +474,7 @@ using Windows system proxy
 
 运行时若要进一步确认 Codex CLI 安全隔离，可以使用 Process Monitor、Sysmon 或 WMI 进程启动跟踪观察 `codex.exe` 的 Parent Process，确认 `codex-usage.exe` 没有创建 Codex CLI 子进程。
 
-## 13. 关键 Git 记录
+## 14. 关键 Git 记录
 
 ### Codex CLI 安全修改
 
@@ -488,3 +527,4 @@ src/system_proxy.rs
 ---
 
 后续维护本 Fork 时，应优先阅读本文档，再查看 `src/poller.rs`、`src/system_proxy.rs`、安全检查脚本和 `safe-build.yml`，即可快速了解本 Fork 与 upstream 最关键的行为差异。
+
