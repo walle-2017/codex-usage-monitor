@@ -1,23 +1,40 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::localization::LanguageId;
 use crate::models::UsageSection;
 use crate::native_interop;
 use crate::poller::{self, UsageWindowKind};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppearancePreset {
-    Default,
     #[default]
     Compact,
     Minimal,
+}
+
+impl<'de> Deserialize<'de> for AppearancePreset {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match value.as_str() {
+            "compact" | "default" => Ok(Self::Compact),
+            "minimal" => Ok(Self::Minimal),
+            _ => Err(serde::de::Error::unknown_variant(
+                &value,
+                &["compact", "minimal"],
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StyleMetrics {
     pub widget_height: i32,
     pub bar_width: i32,
+    pub bar_value_width: i32,
     pub bar_height: i32,
     pub label_width: i32,
     pub label_right_margin: i32,
@@ -34,34 +51,17 @@ pub struct StyleMetrics {
 }
 
 impl AppearancePreset {
-
     pub fn metrics(self) -> StyleMetrics {
         match self {
-            Self::Default => StyleMetrics {
-                widget_height: 46,
-                bar_width: 108,
-                bar_height: 10,
-                label_width: 20,
-                label_right_margin: 8,
-                bar_right_margin: 7,
-                text_width: 34,
-                secondary_width: 52,
-                row_gap: 9,
-                font_height: -12,
-                value_font_height: -13,
-                secondary_font_height: -11,
-                divider_right_margin: 9,
-                model_right_margin: 5,
-                hide_reset_time: false,
-            },
             Self::Compact => StyleMetrics {
                 widget_height: 42,
                 bar_width: 82,
+                bar_value_width: 31,
                 bar_height: 8,
                 label_width: 18,
                 label_right_margin: 6,
                 bar_right_margin: 6,
-                text_width: 31,
+                text_width: 43,
                 secondary_width: 43,
                 row_gap: 7,
                 font_height: -11,
@@ -74,11 +74,12 @@ impl AppearancePreset {
             Self::Minimal => StyleMetrics {
                 widget_height: 40,
                 bar_width: 62,
+                bar_value_width: 31,
                 bar_height: 7,
                 label_width: 18,
                 label_right_margin: 5,
                 bar_right_margin: 5,
-                text_width: 31,
+                text_width: 0,
                 secondary_width: 0,
                 row_gap: 7,
                 font_height: -11,
@@ -93,10 +94,8 @@ impl AppearancePreset {
 
     pub fn menu_label(self, language: LanguageId) -> &'static str {
         match (self, language == LanguageId::SimplifiedChinese) {
-            (Self::Default, true) => "默认",
             (Self::Compact, true) => "紧凑",
             (Self::Minimal, true) => "极简",
-            (Self::Default, false) => "Default",
             (Self::Compact, false) => "Compact",
             (Self::Minimal, false) => "Minimal",
         }
@@ -164,10 +163,9 @@ pub fn taskbar_line(
     window: UsageWindowKind,
 ) -> String {
     let value = taskbar_value_text(preset, language, section, window);
-    match (preset, value.secondary) {
-        (AppearancePreset::Default, Some(reset)) => format!("{}  ↻{}", value.primary, reset),
-        (AppearancePreset::Compact, Some(reset)) => format!("{}  {}", value.primary, reset),
-        _ => value.primary,
+    match value.secondary {
+        Some(reset) => format!("{}  {}", value.primary, reset),
+        None => value.primary,
     }
 }
 
@@ -189,15 +187,20 @@ mod tests {
     }
 
     #[test]
+    fn legacy_default_setting_migrates_to_compact() {
+        let preset: AppearancePreset = serde_json::from_str("\"default\"").unwrap();
+        assert_eq!(preset, AppearancePreset::Compact);
+        assert_eq!(serde_json::to_string(&preset).unwrap(), "\"compact\"");
+    }
+
+    #[test]
     fn minimal_has_the_smallest_layout() {
-        let default = AppearancePreset::Default.metrics();
         let compact = AppearancePreset::Compact.metrics();
         let minimal = AppearancePreset::Minimal.metrics();
 
-        assert!(compact.bar_width < default.bar_width);
         assert!(minimal.bar_width < compact.bar_width);
-        assert!(compact.text_width < default.text_width);
-        assert!(minimal.text_width <= compact.text_width);
+        assert_eq!(minimal.bar_value_width, compact.bar_value_width);
+        assert_eq!(minimal.text_width, 0);
         assert!(minimal.hide_reset_time);
         assert!(!compact.hide_reset_time);
     }
@@ -225,14 +228,8 @@ mod tests {
     }
 
     #[test]
-    fn taskbar_line_matches_each_preset_density() {
+    fn taskbar_line_never_uses_reset_icon() {
         let section = section_with_local_reset(81.0, 1_789_000_000);
-        let default = taskbar_line(
-            AppearancePreset::Default,
-            LanguageId::SimplifiedChinese,
-            &section,
-            UsageWindowKind::Session,
-        );
         let compact = taskbar_line(
             AppearancePreset::Compact,
             LanguageId::SimplifiedChinese,
@@ -246,12 +243,9 @@ mod tests {
             UsageWindowKind::Session,
         );
 
-        assert!(default.starts_with("19%  ↻"));
         assert!(compact.starts_with("19%  "));
         assert!(!compact.contains('↻'));
         assert_eq!(minimal, "19%");
-        assert!(minimal.len() < compact.len());
-        assert!(compact.len() < default.len());
     }
 
     #[test]
@@ -262,5 +256,3 @@ mod tests {
         assert_eq!(quota_tone(49.0), QuotaTone::Normal);
     }
 }
-
-
