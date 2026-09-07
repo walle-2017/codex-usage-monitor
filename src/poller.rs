@@ -1754,8 +1754,8 @@ mod tests {
     #[test]
     fn simplified_chinese_line_labels_remaining_usage() {
         let strings = crate::localization::LanguageId::SimplifiedChinese.strings();
-        assert_eq!(strings.session_window, "5h");
-        assert_eq!(strings.weekly_window, "7d");
+        assert_eq!(strings.session_window, "5H");
+        assert_eq!(strings.weekly_window, "7D");
         let section = UsageSection {
             percentage: 30.0,
             resets_at: None,
