@@ -56,7 +56,7 @@ impl AppearancePreset {
             Self::Compact => StyleMetrics {
                 widget_height: 42,
                 bar_width: 82,
-                bar_value_width: 31,
+                bar_value_width: 34,
                 bar_height: 8,
                 label_width: 18,
                 label_right_margin: 6,
@@ -74,7 +74,7 @@ impl AppearancePreset {
             Self::Minimal => StyleMetrics {
                 widget_height: 40,
                 bar_width: 62,
-                bar_value_width: 31,
+                bar_value_width: 34,
                 bar_height: 7,
                 label_width: 18,
                 label_right_margin: 5,
@@ -203,6 +203,15 @@ mod tests {
         assert_eq!(minimal.text_width, 0);
         assert!(minimal.hide_reset_time);
         assert!(!compact.hide_reset_time);
+    }
+
+    #[test]
+    fn percentage_value_slot_has_room_for_three_digits() {
+        let compact = AppearancePreset::Compact.metrics();
+        let minimal = AppearancePreset::Minimal.metrics();
+
+        assert!(compact.bar_value_width >= 34);
+        assert!(minimal.bar_value_width >= 34);
     }
 
     #[test]
