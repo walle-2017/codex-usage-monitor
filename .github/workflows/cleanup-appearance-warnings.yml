@@ -46,7 +46,7 @@ jobs:
             'WIDGET_HEIGHT'
           )
           foreach ($name in $obsoleteNames) {
-            $pattern = "(?m)^const $name: i32 = [^;]+;\r?\n"
+            $pattern = "(?m)^const ${name}: i32 = [^;]+;\r?\n"
             $updated = [regex]::Replace($window, $pattern, '', 1)
             if ($updated -eq $window) {
               throw "Expected obsolete constant not removed: $name"
