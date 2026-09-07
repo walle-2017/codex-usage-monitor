@@ -17,6 +17,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::appearance::{self, AppearancePreset};
 use crate::diagnose;
 use crate::localization::{self, LanguageId, Strings};
 use crate::models::AppUsageData;
@@ -55,6 +56,7 @@ struct AppState {
     language_override: Option<LanguageId>,
     language: LanguageId,
     install_channel: InstallChannel,
+    appearance_preset: AppearancePreset,
 
     session_percent: f64,
     session_text: String,
@@ -144,6 +146,9 @@ const IDM_ALERT_OFF: u16 = 80;
 const IDM_ALERT_10: u16 = 81;
 const IDM_ALERT_20: u16 = 82;
 const IDM_ALERT_30: u16 = 83;
+const IDM_APPEARANCE_DEFAULT: u16 = 90;
+const IDM_APPEARANCE_COMPACT: u16 = 91;
+const IDM_APPEARANCE_MINIMAL: u16 = 92;
 
 const WM_DPICHANGED_MSG: u32 = 0x02E0;
 const WM_APP_UPDATE_CHECK_COMPLETE: u32 = WM_APP + 2;
@@ -332,6 +337,8 @@ struct SettingsFile {
     last_update_check_unix: Option<u64>,
     #[serde(default = "default_widget_visible")]
     widget_visible: bool,
+    #[serde(default)]
+    appearance_preset: AppearancePreset,
     #[serde(default = "default_show_claude_code")]
     show_claude_code: bool,
     #[serde(default = "default_show_codex")]
@@ -357,6 +364,7 @@ impl Default for SettingsFile {
             language: None,
             last_update_check_unix: None,
             widget_visible: true,
+            appearance_preset: AppearancePreset::Compact,
             show_claude_code: false,
             show_codex: true,
             show_antigravity: false,
@@ -483,6 +491,7 @@ fn save_state_settings() {
                 .map(|language| language.code().to_string()),
             last_update_check_unix: s.last_update_check_unix,
             widget_visible: s.widget_visible,
+            appearance_preset: s.appearance_preset,
             show_claude_code: s.show_claude_code,
             show_codex: s.show_codex,
             show_antigravity: s.show_antigravity,
@@ -1689,6 +1698,7 @@ pub fn run() {
                 language_override,
                 language,
                 install_channel,
+                appearance_preset: settings.appearance_preset,
                 session_percent: 0.0,
                 session_text: "--".to_string(),
                 weekly_percent: 0.0,
@@ -3183,6 +3193,23 @@ unsafe extern "system" fn wnd_proc(
                         do_poll(sh);
                     });
                 }
+                IDM_APPEARANCE_DEFAULT | IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
+                    let preset = match id {
+                        IDM_APPEARANCE_DEFAULT => AppearancePreset::Default,
+                        IDM_APPEARANCE_MINIMAL => AppearancePreset::Minimal,
+                        _ => AppearancePreset::Compact,
+                    };
+                    {
+                        let mut state = lock_state();
+                        if let Some(s) = state.as_mut() {
+                            s.appearance_preset = preset;
+                        }
+                    }
+                    save_state_settings();
+                    position_at_taskbar();
+                    render_layered();
+                    sync_tray_icons(hwnd);
+                }
                 IDM_LANG_SYSTEM
                 | IDM_LANG_ENGLISH
                 | IDM_LANG_DUTCH
@@ -3271,6 +3298,7 @@ fn show_context_menu(hwnd: HWND) {
             show_session_window,
             show_weekly_window,
             alert_threshold_percent,
+            appearance_preset,
         ) = {
             let state = lock_state();
             match state.as_ref() {
@@ -3289,6 +3317,7 @@ fn show_context_menu(hwnd: HWND) {
                     s.show_session_window,
                     s.show_weekly_window,
                     s.alert_threshold_percent,
+                    s.appearance_preset,
                 ),
                 None => (
                     POLL_15_MIN,
@@ -3305,6 +3334,7 @@ fn show_context_menu(hwnd: HWND) {
                     true,
                     true,
                     0,
+                    AppearancePreset::Compact,
                 ),
             }
         };
@@ -3513,6 +3543,37 @@ fn show_context_menu(hwnd: HWND) {
             MF_POPUP,
             alert_menu.0 as usize,
             PCWSTR::from_raw(alert_label.as_ptr()),
+        );
+
+        // Appearance submenu
+        let appearance_menu = CreatePopupMenu().unwrap();
+        let appearance_items = [
+            (IDM_APPEARANCE_DEFAULT, AppearancePreset::Default),
+            (IDM_APPEARANCE_COMPACT, AppearancePreset::Compact),
+            (IDM_APPEARANCE_MINIMAL, AppearancePreset::Minimal),
+        ];
+        for (id, preset) in appearance_items {
+            let label = native_interop::wide_str(preset.menu_label(language));
+            let flags = if preset == appearance_preset {
+                MF_CHECKED
+            } else {
+                MENU_ITEM_FLAGS(0)
+            };
+            let _ = AppendMenuW(
+                appearance_menu,
+                flags,
+                id as usize,
+                PCWSTR::from_raw(label.as_ptr()),
+            );
+        }
+        let appearance_label = native_interop::wide_str(
+            if language == LanguageId::SimplifiedChinese { "外观" } else { "Appearance" }
+        );
+        let _ = AppendMenuW(
+            menu,
+            MF_POPUP,
+            appearance_menu.0 as usize,
+            PCWSTR::from_raw(appearance_label.as_ptr()),
         );
 
         // Settings submenu
@@ -4231,4 +4292,5 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
+
 
