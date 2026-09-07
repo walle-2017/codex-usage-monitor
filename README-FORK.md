@@ -261,11 +261,13 @@ HTTP_PROXY
 
 不会修改 Windows 系统配置，也不会写回注册表。
 
-诊断模式下会记录类似：
+诊断模式下只记录：
 
 ```text
-using Windows system proxy http://127.0.0.1:7890
+using Windows system proxy
 ```
+
+不会输出完整代理 URL，避免极端情况下代理字符串中的认证信息进入日志。
 
 如果用户已经显式设置代理环境变量，则 Windows 系统代理不会覆盖它们。
 
@@ -425,10 +427,10 @@ Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Setti
 %TEMP%\codex-usage.log
 ```
 
-启用 Windows 手动系统代理时，应能看到类似：
+启用 Windows 手动系统代理时，应能看到：
 
 ```text
-using Windows system proxy http://127.0.0.1:7890
+using Windows system proxy
 ```
 
 运行时若要进一步确认 Codex CLI 安全隔离，可以使用 Process Monitor、Sysmon 或 WMI 进程启动跟踪观察 `codex.exe` 的 Parent Process，确认 `codex-usage.exe` 没有创建 Codex CLI 子进程。
