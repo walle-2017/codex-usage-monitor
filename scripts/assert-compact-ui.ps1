@@ -58,4 +58,31 @@ if ($windowProduction -notmatch 'model_width\s*=.*?[\r\n]+(?:.*[\r\n]+){0,10}?\s
     throw 'Total widget width must reserve the percentage value area so reset time is not clipped.'
 }
 
+# GDI acrylic-style panel and dotted drag handle contract.
+if ($appearanceProduction -notmatch 'panel_radius:\s*i32') {
+    throw 'Appearance metrics must expose an acrylic-style panel radius.'
+}
+if (($appearanceProduction | Select-String -Pattern 'panel_radius:\s*5' -AllMatches).Matches.Count -lt 2) {
+    throw 'Compact and Minimal presets must both use a 5px panel radius.'
+}
+if ($windowProduction -notmatch 'fn\s+draw_acrylic_panel\s*\(') {
+    throw 'Widget must draw a unified GDI acrylic-style panel background.'
+}
+if ($windowProduction -notmatch 'draw_acrylic_panel\(hdc,\s*width,\s*height,\s*is_dark') {
+    throw 'paint_content must draw the acrylic-style panel before content.'
+}
+if ($windowProduction -notmatch 'const\s+DRAG_HANDLE_HIT_W:\s*i32\s*=\s*8') {
+    throw 'Drag handle hit area must be 8 logical pixels wide.'
+}
+if ($windowProduction -notmatch 'fn\s+draw_drag_handle\s*\(') {
+    throw 'Widget must draw a dedicated dotted drag handle.'
+}
+if (($windowProduction | Select-String -Pattern 'for\s+row\s+in\s+0\.\.3' -AllMatches).Matches.Count -lt 1 -or
+    ($windowProduction | Select-String -Pattern 'for\s+col\s+in\s+0\.\.2' -AllMatches).Matches.Count -lt 1) {
+    throw 'Drag handle must use a 2x3 dot matrix.'
+}
+if ($windowProduction -match 'Left divider') {
+    throw 'Legacy vertical divider drawing must be removed.'
+}
+
 Write-Host 'PASS: compact taskbar UI contract is satisfied.'
