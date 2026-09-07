@@ -146,7 +146,7 @@ const IDM_ALERT_OFF: u16 = 80;
 const IDM_ALERT_10: u16 = 81;
 const IDM_ALERT_20: u16 = 82;
 const IDM_ALERT_30: u16 = 83;
-const IDM_APPEARANCE_DEFAULT: u16 = 90;
+
 const IDM_APPEARANCE_COMPACT: u16 = 91;
 const IDM_APPEARANCE_MINIMAL: u16 = 92;
 
@@ -524,10 +524,10 @@ fn service_tooltip(
 ) -> String {
     let mut parts = Vec::new();
     if show_session_window {
-        parts.push(format!("5h {session_text}"));
+        parts.push(format!("5H {session_text}"));
     }
     if show_weekly_window {
-        parts.push(format!("7d {weekly_text}"));
+        parts.push(format!("7D {weekly_text}"));
     }
     format!("{service}: {}", parts.join(" | "))
 }
@@ -1407,7 +1407,6 @@ fn set_startup_enabled(enable: bool) {
 const SEGMENT_W: i32 = 10;
 const SEGMENT_H: i32 = 13;
 const SEGMENT_GAP: i32 = 1;
-const SEGMENT_COUNT: i32 = 10;
 
 const LEFT_DIVIDER_W: i32 = 3;
 const RIGHT_MARGIN: i32 = 1;
@@ -1443,12 +1442,10 @@ fn current_appearance_preset() -> AppearancePreset {
 fn row_bar_segment_count(active_models: i32, preset: AppearancePreset) -> i32 {
     match active_models {
         1 => match preset {
-            AppearancePreset::Default => SEGMENT_COUNT,
             AppearancePreset::Compact => 8,
             AppearancePreset::Minimal => 6,
         },
         2 => match preset {
-            AppearancePreset::Default => 5,
             AppearancePreset::Compact => 4,
             AppearancePreset::Minimal => 3,
         },
@@ -1458,7 +1455,7 @@ fn row_bar_segment_count(active_models: i32, preset: AppearancePreset) -> i32 {
 
 fn usage_layout_widths(_language: LanguageId, preset: AppearancePreset) -> (i32, i32) {
     let metrics = preset.metrics();
-    (metrics.label_width, metrics.text_width + metrics.secondary_width)
+    (metrics.label_width, metrics.secondary_width)
 }
 
 fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 {
@@ -2932,7 +2929,7 @@ unsafe extern "system" fn wnd_proc(
                             let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
                             let anchor_top = taskbar_rect.top;
                             let anchor_height = taskbar_height;
-                            let widget_height = sc(current_appearance_preset().metrics().widget_height);
+                            let widget_height = sc(s.appearance_preset.metrics().widget_height);
                             let y = compute_anchor_y(anchor_top, anchor_height, widget_height);
                             let x = if embedded {
                                 tray_left - taskbar_rect.left - widget_width - new_offset
@@ -2973,6 +2970,23 @@ unsafe extern "system" fn wnd_proc(
                         native_interop::move_window(hwnd_val, x, y, widget_width, widget_height);
                     }
                 }
+            }
+            LRESULT(0)
+        }
+        WM_CANCELMODE => {
+            {
+                let mut state = lock_state();
+                if let Some(s) = state.as_mut() {
+                    s.dragging = false;
+                }
+            }
+            let _ = ReleaseCapture();
+            LRESULT(0)
+        }
+        WM_CAPTURECHANGED => {
+            let mut state = lock_state();
+            if let Some(s) = state.as_mut() {
+                s.dragging = false;
             }
             LRESULT(0)
         }
@@ -3209,11 +3223,11 @@ unsafe extern "system" fn wnd_proc(
                         do_poll(sh);
                     });
                 }
-                IDM_APPEARANCE_DEFAULT | IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
-                    let preset = match id {
-                        IDM_APPEARANCE_DEFAULT => AppearancePreset::Default,
-                        IDM_APPEARANCE_MINIMAL => AppearancePreset::Minimal,
-                        _ => AppearancePreset::Compact,
+                IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
+                    let preset = if id == IDM_APPEARANCE_MINIMAL {
+                        AppearancePreset::Minimal
+                    } else {
+                        AppearancePreset::Compact
                     };
                     {
                         let mut state = lock_state();
@@ -3565,7 +3579,6 @@ fn show_context_menu(hwnd: HWND) {
         // Appearance submenu
         let appearance_menu = CreatePopupMenu().unwrap();
         let appearance_items = [
-            (IDM_APPEARANCE_DEFAULT, AppearancePreset::Default),
             (IDM_APPEARANCE_COMPACT, AppearancePreset::Compact),
             (IDM_APPEARANCE_MINIMAL, AppearancePreset::Minimal),
         ];
@@ -3968,6 +3981,7 @@ fn draw_row(
 
 fn model_usage_width(segment_count: i32, text_width: i32, preset: AppearancePreset) -> i32 {
     (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count - sc(SEGMENT_GAP)
+        + sc(preset.metrics().bar_value_width)
         + sc(preset.metrics().bar_right_margin)
         + sc(text_width)
 }
@@ -3987,10 +4001,13 @@ fn draw_usage_bar(
     let seg_w = sc(SEGMENT_W);
     let seg_h = sc(SEGMENT_H);
     let seg_gap = sc(SEGMENT_GAP);
-    let bar_width = segment_count * (seg_w + seg_gap) - seg_gap;
-    let bar_h = sc(current_appearance_preset().metrics().bar_height).min(seg_h);
+    let metrics = current_appearance_preset().metrics();
+    let progress_width = segment_count * (seg_w + seg_gap) - seg_gap;
+    let bar_value_width = sc(metrics.bar_value_width);
+    let bar_width = progress_width + bar_value_width;
+    let bar_h = sc(metrics.bar_height).min(seg_h);
     let bar_y = y + (seg_h - bar_h) / 2;
-    let corner_r = bar_h / 2;
+    let corner_r = sc(1).min((bar_h / 2).max(1));
 
     unsafe {
         let percent_clamped = percent.clamp(0.0, 100.0);
@@ -4002,7 +4019,7 @@ fn draw_usage_bar(
         };
         draw_rounded_rect(hdc, &bar_rect, track, corner_r);
 
-        let fill_width = (bar_width as f64 * percent_clamped / 100.0).round() as i32;
+        let fill_width = (progress_width as f64 * percent_clamped / 100.0).round() as i32;
         if fill_width > 0 {
             let fill_rect = RECT {
                 left: bar_x,
@@ -4026,7 +4043,7 @@ fn draw_usage_bar(
             let _ = DeleteObject(rgn);
         }
 
-        let text_x = bar_x + bar_width + sc(current_appearance_preset().metrics().bar_right_margin);
+        let text_x = bar_x + progress_width;
         draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
     }
 }
@@ -4067,7 +4084,7 @@ fn draw_usage_value_text(
         let mut primary_rect = RECT {
             left: text_x,
             top: y,
-            right: text_x + sc(metrics.text_width),
+            right: text_x + sc(metrics.bar_value_width),
             bottom: y + row_height,
         };
         let _ = DrawTextW(
@@ -4098,11 +4115,11 @@ fn draw_usage_value_text(
             };
             let _ = SetTextColor(hdc, COLORREF(secondary_color.to_colorref()));
             let mut secondary_wide: Vec<u16> = secondary.encode_utf16().collect();
-            let secondary_x = text_x + sc(metrics.text_width);
+            let secondary_x = text_x + sc(metrics.bar_value_width) + sc(metrics.bar_right_margin);
             let mut secondary_rect = RECT {
                 left: secondary_x,
                 top: y,
-                right: text_x + sc(total_text_width),
+                right: secondary_x + sc(total_text_width),
                 bottom: y + row_height,
             };
             let _ = DrawTextW(
@@ -4151,11 +4168,11 @@ mod tests {
                 true,
                 true
             ),
-            "Codex: 5h 剩余13% 19:04重置 | 7d 剩余86% 07/18重置"
+            "Codex: 5H 剩余13% 19:04重置 | 7D 剩余86% 07/18重置"
         );
         assert_eq!(
             service_tooltip("Claude Code", "13%", "86%", false, true),
-            "Claude Code: 7d 86%"
+            "Claude Code: 7D 86%"
         );
     }
 
