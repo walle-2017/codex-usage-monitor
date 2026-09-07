@@ -4027,6 +4027,27 @@ mod tests {
     }
 
     #[test]
+    fn legacy_settings_default_to_compact_appearance() {
+        let settings: SettingsFile = serde_json::from_str(r#"{"show_codex":true}"#).unwrap();
+        assert_eq!(
+            settings.appearance_preset,
+            crate::appearance::AppearancePreset::Compact
+        );
+    }
+
+    #[test]
+    fn explicit_minimal_appearance_round_trips() {
+        let mut settings = SettingsFile::default();
+        settings.appearance_preset = crate::appearance::AppearancePreset::Minimal;
+        let json = serde_json::to_string(&settings).unwrap();
+        let parsed: SettingsFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            parsed.appearance_preset,
+            crate::appearance::AppearancePreset::Minimal
+        );
+    }
+
+    #[test]
     fn loads_legacy_settings_when_new_path_is_missing() {
         let base = std::env::temp_dir().join(format!(
             "codex-usage-settings-test-{}-{}",
@@ -4210,3 +4231,4 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
+
