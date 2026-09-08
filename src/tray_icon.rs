@@ -13,9 +13,6 @@ const APP_TRAY_ICON_ID: u32 = 1;
 const LEGACY_CODEX_TRAY_ICON_ID: u32 = 2;
 const LEGACY_ANTIGRAVITY_TRAY_ICON_ID: u32 = 3;
 
-/// Menu item ID for toggling widget visibility (used by window.rs context menu).
-pub const IDM_TOGGLE_WIDGET: u16 = 70;
-
 /// Actions the tray message handler can request from the main window.
 pub enum TrayAction {
     None,
@@ -144,7 +141,7 @@ fn remove_id(hwnd: HWND, id: u32) {
 }
 
 pub fn sync(hwnd: HWND, icon: Option<&TrayIconData>) {
-    // Remove provider-specific icons left by versions before v1.9.
+    // Remove provider-specific icons left by older versions.
     remove_id(hwnd, LEGACY_CODEX_TRAY_ICON_ID);
     remove_id(hwnd, LEGACY_ANTIGRAVITY_TRAY_ICON_ID);
 
