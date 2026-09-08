@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - safe-no-codex-cli
+      - codex-only-v1-cleanup
   pull_request:
     branches:
       - main
@@ -21,6 +22,10 @@ jobs:
       - name: Verify Codex CLI refresh is disabled
         shell: pwsh
         run: ./scripts/assert-no-codex-cli-refresh.ps1
+
+      - name: Verify Codex-only runtime
+        shell: pwsh
+        run: ./scripts/assert-codex-only-runtime.ps1
 
       - name: Verify taskbar drag capture handling
         shell: pwsh
