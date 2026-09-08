@@ -1914,7 +1914,10 @@ fn render_layered() {
     let width = total_widget_width();
     let height = {
         let state = lock_state();
-        state.as_ref().map(widget_height_for_state).unwrap_or(sc(current_appearance_preset().metrics().widget_height))
+        state
+            .as_ref()
+            .map(widget_height_for_state)
+            .unwrap_or(sc(AppearancePreset::Compact.metrics().widget_height))
     };
 
     let accent = claude_accent_color();
