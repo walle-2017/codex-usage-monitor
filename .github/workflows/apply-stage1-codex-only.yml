@@ -21,7 +21,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Apply stage1 patch
-        run: python scripts/apply-stage1-codex-only.py
+        run: |
+          python scripts/apply-stage1-codex-only.py
+          python scripts/fix-stage1-main.py
 
       - name: Format
         run: cargo fmt --all
