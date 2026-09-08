@@ -1420,11 +1420,18 @@ const DRAG_HANDLE_HIT_H: i32 = 24;
 
 fn is_drag_handle_point(client_x: i32, client_y: i32) -> bool {
     let hit_h = sc(DRAG_HANDLE_HIT_H);
-    let hit_top = (sc(current_appearance_preset().metrics().widget_height) - hit_h) / 2;
+    let widget_height = {
+        let state = lock_state();
+        state
+            .as_ref()
+            .map(widget_height_for_state)
+            .unwrap_or(sc(current_appearance_preset().metrics().widget_height))
+    };
+    let hit_top = (widget_height - hit_h).max(0) / 2;
     client_x >= 0
         && client_x < sc(DRAG_HANDLE_HIT_W)
         && client_y >= hit_top
-        && client_y < hit_top + hit_h
+        && client_y < (hit_top + hit_h).min(widget_height)
 }
 
 fn cursor_is_on_drag_handle(hwnd: HWND) -> bool {
@@ -1441,8 +1448,13 @@ fn active_model_count(show_claude_code: bool, show_codex: bool, show_antigravity
     (show_claude_code as i32 + show_codex as i32 + show_antigravity as i32).max(1)
 }
 
+fn is_small_taskbar_height_at_dpi(taskbar_height: i32, dpi: u32) -> bool {
+    let threshold = (SMALL_TASKBAR_THRESHOLD as f64 * dpi as f64 / 96.0).round() as i32;
+    taskbar_height <= threshold
+}
+
 fn is_small_taskbar_height(taskbar_height: i32) -> bool {
-    taskbar_height <= sc(SMALL_TASKBAR_THRESHOLD)
+    is_small_taskbar_height_at_dpi(taskbar_height, CURRENT_DPI.load(Ordering::Relaxed))
 }
 
 fn widget_height_for_state(state: &AppState) -> i32 {
@@ -4051,11 +4063,12 @@ mod tests {
     }
 
     #[test]
-    fn small_taskbar_threshold_is_dpi_aware_at_96_dpi() {
-        CURRENT_DPI.store(96, Ordering::Relaxed);
-        assert!(is_small_taskbar_height(32));
-        assert!(is_small_taskbar_height(34));
-        assert!(!is_small_taskbar_height(35));
+    fn small_taskbar_threshold_is_dpi_aware() {
+        assert!(is_small_taskbar_height_at_dpi(32, 96));
+        assert!(is_small_taskbar_height_at_dpi(34, 96));
+        assert!(!is_small_taskbar_height_at_dpi(35, 96));
+        assert!(is_small_taskbar_height_at_dpi(51, 144));
+        assert!(!is_small_taskbar_height_at_dpi(52, 144));
     }
     #[test]
     fn service_tooltip_combines_visible_quota_rows() {
