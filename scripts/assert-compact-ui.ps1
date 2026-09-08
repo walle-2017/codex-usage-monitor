@@ -102,6 +102,12 @@ if ($windowProduction -notmatch 'fn\s+draw_acrylic_panel\s*\(') {
 if ($windowProduction -notmatch 'draw_acrylic_panel\(hdc,\s*width,\s*height,\s*is_dark') {
     throw 'paint_content must draw the acrylic-style panel before content.'
 }
+if ($windowProduction -notmatch 'panel_radius\s*<=\s*0[\s\S]{0,500}?FillRect\(hdc,\s*&outer') {
+    throw 'Zero-radius panel must use FillRect for a fully square outer border.'
+}
+if ($windowProduction -notmatch 'panel_radius\s*<=\s*0[\s\S]{0,800}?FillRect\(hdc,\s*&inner') {
+    throw 'Zero-radius panel must use FillRect for a fully square inner fill.'
+}
 if ($windowProduction -notmatch 'fn\s+draw_drag_handle\s*\(') {
     throw 'Widget must draw a dedicated dotted drag handle.'
 }
