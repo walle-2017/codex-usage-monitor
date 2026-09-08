@@ -1423,7 +1423,7 @@ fn is_drag_handle_point(client_x: i32, client_y: i32) -> bool {
         state
             .as_ref()
             .map(widget_height_for_state)
-            .unwrap_or(sc(current_appearance_preset().metrics().widget_height))
+            .unwrap_or(sc(AppearancePreset::Compact.metrics().widget_height))
     };
     let hit_top = (widget_height - hit_h).max(0) / 2;
     client_x >= 0
