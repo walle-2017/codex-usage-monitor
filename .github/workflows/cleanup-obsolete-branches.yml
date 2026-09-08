@@ -1,0 +1,36 @@
+name: Cleanup Obsolete Branches
+
+on:
+  push:
+    branches:
+      - codex-only-v1-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex-only-v1-cleanup
+          fetch-depth: 0
+
+      - name: Delete verified obsolete branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          branches=(
+            add-percent-gap
+            appearance-presets
+            codex-only-cleanup-v1.0.0
+            fix-compact-layout-clipping
+            gdi-acrylic-panel
+            taskbar-drag-ui-fixes
+          )
+          for branch in "${branches[@]}"; do
+            echo "DELETE_OBSOLETE $branch"
+            git push origin --delete "$branch"
+          done
