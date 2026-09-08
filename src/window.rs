@@ -1486,12 +1486,8 @@ fn usage_layout_widths(_language: LanguageId, preset: AppearancePreset) -> (i32,
     (metrics.label_width, metrics.reset_width)
 }
 
-fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 {
-    if language == LanguageId::SimplifiedChinese {
-        poller::remaining_percentage(used_percentage)
-    } else {
-        used_percentage.clamp(0.0, 100.0)
-    }
+fn usage_percent_for_display(_language: LanguageId, used_percentage: f64) -> f64 {
+    poller::remaining_percentage(used_percentage)
 }
 
 fn total_widget_width_for_preset(
@@ -1564,12 +1560,8 @@ fn antigravity_accent_color() -> Color {
     Color::from_hex("#4285F4")
 }
 
-fn quota_bar_color(_is_dark: bool, displayed_percent: f64, language: LanguageId) -> Color {
-    let remaining = if language == LanguageId::SimplifiedChinese {
-        displayed_percent.clamp(0.0, 100.0)
-    } else {
-        100.0 - displayed_percent.clamp(0.0, 100.0)
-    };
+fn quota_bar_color(_is_dark: bool, displayed_percent: f64, _language: LanguageId) -> Color {
+    let remaining = displayed_percent.clamp(0.0, 100.0);
     if remaining > 50.0 {
         Color::from_hex("#55A8F2")
     } else if remaining > 20.0 {
