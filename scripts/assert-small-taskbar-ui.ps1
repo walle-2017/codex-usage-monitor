@@ -15,6 +15,13 @@ if ($windowProduction -notmatch 'const\s+SMALL_WIDGET_HEIGHT:\s*i32\s*=\s*28') {
 if ($windowProduction -notmatch 'small_taskbar_mode:\s*bool' -or $windowProduction -notmatch 'small_show_weekly:\s*bool') {
     throw 'App state must track small-taskbar mode and the selected 5H/7D row.'
 }
+if ($windowProduction -notmatch 'fn\s+is_small_taskbar_height_at_dpi\s*\(' -or
+    $windowProduction -notmatch 'CURRENT_DPI\.load\(Ordering::Relaxed\)') {
+    throw 'Small-taskbar detection must use a pure DPI-aware helper and the runtime DPI.'
+}
+if ($windowProduction -notmatch 'map\(widget_height_for_state\)') {
+    throw 'Drag-handle hit testing must use the actual runtime widget height in small mode.'
+}
 if ($windowProduction -notmatch 'anchor_top\s*\+\s*\(anchor_height\s*-\s*widget_height\)\.max\(0\)\s*/\s*2') {
     throw 'Widget must be vertically centered within the taskbar.'
 }
