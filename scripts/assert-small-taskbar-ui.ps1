@@ -15,6 +15,10 @@ if ($windowProduction -notmatch 'const\s+SMALL_WIDGET_HEIGHT:\s*i32\s*=\s*28') {
 if ($windowProduction -notmatch 'small_taskbar_mode:\s*bool' -or $windowProduction -notmatch 'small_show_weekly:\s*bool') {
     throw 'App state must track small-taskbar mode and the selected 5H/7D row.'
 }
+$settingsBlock = [regex]::Match($windowProduction, '(?s)struct SettingsFile \{.*?\n\}').Value
+if ($settingsBlock -match 'small_taskbar_mode|small_show_weekly') {
+    throw 'Small-taskbar mode/selection are transient and must not be persisted in SettingsFile.'
+}
 if ($windowProduction -notmatch 'fn\s+is_small_taskbar_height_at_dpi\s*\(' -or
     $windowProduction -notmatch 'CURRENT_DPI\.load\(Ordering::Relaxed\)') {
     throw 'Small-taskbar detection must use a pure DPI-aware helper and the runtime DPI.'
