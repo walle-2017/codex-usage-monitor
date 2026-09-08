@@ -103,7 +103,7 @@ fn read_registry_string(value_name: &str) -> Option<String> {
         return None;
     }
 
-    let mut buffer = vec![0u16; (data_size as usize + 1) / 2];
+    let mut buffer = vec![0u16; (data_size as usize).div_ceil(2)];
     let status = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,

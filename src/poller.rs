@@ -28,20 +28,6 @@ pub enum UsageWindowKind {
     Weekly,
 }
 
-impl PollError {
-    pub fn category(self) -> &'static str {
-        match self {
-            Self::AuthRequired => "auth_required",
-            Self::NoCredentials => "no_credentials",
-            Self::TokenExpired => "token_expired",
-            Self::NetworkUnavailable => "network_unavailable",
-            Self::RateLimited => "rate_limited",
-            Self::ServerError => "server_error",
-            Self::RequestFailed => "invalid_response",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialWatchMode {
     ActiveSource,
@@ -81,10 +67,7 @@ struct CodexRateLimitWindow {
 
 pub fn poll() -> Result<AppUsageData, PollError> {
     let codex = poll_codex()?;
-    Ok(AppUsageData {
-        codex: Some(codex),
-        ..Default::default()
-    })
+    Ok(AppUsageData { codex: Some(codex) })
 }
 
 fn poll_codex() -> Result<UsageData, PollError> {

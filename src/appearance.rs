@@ -132,26 +132,6 @@ pub struct TaskbarValueText {
     pub secondary: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum QuotaTone {
-    Normal,
-    Warning,
-    Critical,
-}
-
-/// Determine the visual tone from *used* percentage. Thresholds are based on
-/// remaining quota: >50% normal, 20..=50% warning, <20% critical.
-pub fn quota_tone(used_percentage: f64) -> QuotaTone {
-    let remaining = poller::remaining_percentage(used_percentage);
-    if remaining < 20.0 {
-        QuotaTone::Critical
-    } else if remaining <= 50.0 {
-        QuotaTone::Warning
-    } else {
-        QuotaTone::Normal
-    }
-}
-
 pub fn taskbar_value_text(
     preset: AppearancePreset,
     _language: LanguageId,
@@ -303,13 +283,5 @@ mod tests {
         assert!(compact.starts_with("19%  "));
         assert!(!compact.contains('↻'));
         assert_eq!(minimal, "19%");
-    }
-
-    #[test]
-    fn quota_tone_tracks_remaining_quota() {
-        assert_eq!(quota_tone(81.0), QuotaTone::Critical);
-        assert_eq!(quota_tone(80.0), QuotaTone::Warning);
-        assert_eq!(quota_tone(50.0), QuotaTone::Warning);
-        assert_eq!(quota_tone(49.0), QuotaTone::Normal);
     }
 }

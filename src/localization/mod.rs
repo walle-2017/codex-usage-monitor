@@ -94,22 +94,6 @@ impl LanguageId {
         }
     }
 
-    pub fn update_via_winget_label(self) -> &'static str {
-        match self {
-            Self::English => english::UPDATE_VIA_WINGET_LABEL,
-            Self::Dutch => dutch::UPDATE_VIA_WINGET_LABEL,
-            Self::Spanish => spanish::UPDATE_VIA_WINGET_LABEL,
-            Self::French => french::UPDATE_VIA_WINGET_LABEL,
-            Self::German => german::UPDATE_VIA_WINGET_LABEL,
-            Self::Japanese => japanese::UPDATE_VIA_WINGET_LABEL,
-            Self::Korean => korean::UPDATE_VIA_WINGET_LABEL,
-            Self::SimplifiedChinese => simplified_chinese::UPDATE_VIA_WINGET_LABEL,
-            Self::TraditionalChinese => traditional_chinese::UPDATE_VIA_WINGET_LABEL,
-            Self::Russian => russian::UPDATE_VIA_WINGET_LABEL,
-            Self::PortugueseBrazil => portuguese_brazil::UPDATE_VIA_WINGET_LABEL,
-        }
-    }
-
     pub fn from_code(code: &str) -> Option<Self> {
         let normalized = code.trim().replace('_', "-").to_ascii_lowercase();
         if normalized.is_empty() || normalized == "system" {
@@ -188,28 +172,13 @@ pub struct Strings {
     pub five_minutes: &'static str,
     pub fifteen_minutes: &'static str,
     pub one_hour: &'static str,
-    pub models: &'static str,
-    pub claude_code_model: &'static str,
     pub codex_model: &'static str,
-    pub antigravity_model: &'static str,
     pub settings: &'static str,
     pub start_with_windows: &'static str,
     pub reset_position: &'static str,
     pub language: &'static str,
     pub system_default: &'static str,
-    pub check_for_updates: &'static str,
-    pub checking_for_updates: &'static str,
-    pub updates: &'static str,
-    pub update_in_progress: &'static str,
-    pub up_to_date: &'static str,
-    pub up_to_date_short: &'static str,
-    pub update_failed: &'static str,
-    pub applying_update: &'static str,
-    pub update_to: &'static str,
-    pub update_available: &'static str,
-    pub update_prompt_now: &'static str,
     pub exit: &'static str,
-    pub show_widget: &'static str,
     pub session_window: &'static str,
     pub weekly_window: &'static str,
     pub now: &'static str,
@@ -217,14 +186,8 @@ pub struct Strings {
     pub hour_suffix: &'static str,
     pub minute_suffix: &'static str,
     pub second_suffix: &'static str,
-    pub token_expired_title: &'static str,
-    pub token_expired_body: &'static str,
     pub codex_token_expired_title: &'static str,
     pub codex_token_expired_body: &'static str,
-    pub antigravity_token_expired_title: &'static str,
-    pub antigravity_token_expired_body: &'static str,
-    pub codex_window_title: &'static str,
-    pub antigravity_window_title: &'static str,
 }
 
 pub fn resolve_language(language_override: Option<LanguageId>) -> LanguageId {
@@ -238,10 +201,6 @@ pub fn detect_system_language() -> LanguageId {
         .or_else(default_ui_locale)
         .or_else(default_locale_name)
         .unwrap_or(LanguageId::English)
-}
-
-pub fn update_via_winget(language: LanguageId) -> &'static str {
-    language.update_via_winget_label()
 }
 
 fn preferred_ui_languages() -> Vec<String> {

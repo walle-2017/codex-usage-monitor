@@ -9,7 +9,6 @@ mod poller;
 mod system_proxy;
 mod theme;
 mod tray_icon;
-mod updater;
 mod window;
 
 fn main() {

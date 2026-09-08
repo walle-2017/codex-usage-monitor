@@ -10,29 +10,22 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::native_interop::WM_APP_TRAY;
 
 const APP_TRAY_ICON_ID: u32 = 1;
-const LEGACY_CODEX_TRAY_ICON_ID: u32 = 2;
-const LEGACY_ANTIGRAVITY_TRAY_ICON_ID: u32 = 3;
+const LEGACY_PROVIDER_TRAY_ICON_IDS: [u32; 2] = [2, 3];
 
-/// Actions the tray message handler can request from the main window.
 pub enum TrayAction {
     None,
     ShowContextMenu,
 }
 
-/// Identifies the provider that originated a notification. All notifications
-/// now use the one application tray icon rather than provider-specific icons.
 #[derive(Clone, Copy)]
 pub enum TrayIconKind {
-    Claude,
     Codex,
-    Antigravity,
 }
 
 pub struct TrayIconData {
     pub tooltip: String,
 }
 
-/// Load the same embedded icon used by the executable and desktop shortcut.
 pub fn create_icon() -> HICON {
     load_embedded_app_icon()
 }
@@ -70,7 +63,6 @@ fn load_embedded_app_icon() -> HICON {
     }
 }
 
-/// Show a Windows balloon notification from the single application tray icon.
 pub fn notify_balloon(hwnd: HWND, _kind: TrayIconKind, title: &str, message: &str) {
     unsafe {
         let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
@@ -141,10 +133,9 @@ fn remove_id(hwnd: HWND, id: u32) {
 }
 
 pub fn sync(hwnd: HWND, icon: Option<&TrayIconData>) {
-    // Remove provider-specific icons left by older versions.
-    remove_id(hwnd, LEGACY_CODEX_TRAY_ICON_ID);
-    remove_id(hwnd, LEGACY_ANTIGRAVITY_TRAY_ICON_ID);
-
+    for id in LEGACY_PROVIDER_TRAY_ICON_IDS {
+        remove_id(hwnd, id);
+    }
     if let Some(icon) = icon {
         add(hwnd, &icon.tooltip);
         update(hwnd, &icon.tooltip);
@@ -155,15 +146,13 @@ pub fn sync(hwnd: HWND, icon: Option<&TrayIconData>) {
 
 pub fn remove_all(hwnd: HWND) {
     remove_id(hwnd, APP_TRAY_ICON_ID);
-    remove_id(hwnd, LEGACY_CODEX_TRAY_ICON_ID);
-    remove_id(hwnd, LEGACY_ANTIGRAVITY_TRAY_ICON_ID);
+    for id in LEGACY_PROVIDER_TRAY_ICON_IDS {
+        remove_id(hwnd, id);
+    }
 }
 
-/// Interpret a tray callback message and return the action to take.
 pub fn handle_message(lparam: LPARAM) -> TrayAction {
-    let mouse_msg = lparam.0 as u32;
-    match mouse_msg {
-        WM_LBUTTONUP => TrayAction::None,
+    match lparam.0 as u32 {
         WM_RBUTTONUP => TrayAction::ShowContextMenu,
         _ => TrayAction::None,
     }
