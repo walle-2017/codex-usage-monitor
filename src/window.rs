@@ -1411,7 +1411,7 @@ const SEGMENT_H: i32 = 13;
 const SEGMENT_GAP: i32 = 1;
 
 const DRAG_HANDLE_HIT_W: i32 = 12;
-const DRAG_HANDLE_VISUAL_INSET_X: i32 = 4;
+const DRAG_HANDLE_VISUAL_INSET_X: i32 = 7;
 const SMALL_TASKBAR_THRESHOLD: i32 = 34;
 const SMALL_WIDGET_HEIGHT: i32 = 28;
 const DRAG_HANDLE_HIT_H: i32 = 24;
@@ -2739,12 +2739,12 @@ unsafe extern "system" fn wnd_proc(
                 state.as_ref().map(|s| s.dragging).unwrap_or(false)
             };
             if is_dragging {
-                let cursor = LoadCursorW(HINSTANCE::default(), IDC_SIZEWE).unwrap_or_default();
+                let cursor = LoadCursorW(HINSTANCE::default(), IDC_SIZEALL).unwrap_or_default();
                 SetCursor(cursor);
                 return LRESULT(1);
             }
             if cursor_is_on_drag_handle(hwnd) {
-                let cursor = LoadCursorW(HINSTANCE::default(), IDC_SIZEWE).unwrap_or_default();
+                let cursor = LoadCursorW(HINSTANCE::default(), IDC_SIZEALL).unwrap_or_default();
                 SetCursor(cursor);
                 return LRESULT(1);
             }
@@ -3994,9 +3994,6 @@ fn draw_acrylic_panel(hdc: HDC, width: i32, height: i32, is_dark: bool, panel_ra
         right: width - outer_inset,
         bottom: height - outer_inset,
     };
-    let radius = sc(panel_radius).max(sc(1));
-    draw_rounded_rect(hdc, &outer, &border, radius);
-
     let inner_inset = outer_inset + sc(1);
     let inner = RECT {
         left: inner_inset,
@@ -4004,6 +4001,22 @@ fn draw_acrylic_panel(hdc: HDC, width: i32, height: i32, is_dark: bool, panel_ra
         right: width - inner_inset,
         bottom: height - inner_inset,
     };
+
+    if panel_radius <= 0 {
+        unsafe {
+            let border_brush = CreateSolidBrush(COLORREF(border.to_colorref()));
+            FillRect(hdc, &outer, border_brush);
+            let _ = DeleteObject(border_brush);
+
+            let fill_brush = CreateSolidBrush(COLORREF(fill.to_colorref()));
+            FillRect(hdc, &inner, fill_brush);
+            let _ = DeleteObject(fill_brush);
+        }
+        return;
+    }
+
+    let radius = sc(panel_radius).max(sc(1));
+    draw_rounded_rect(hdc, &outer, &border, radius);
     draw_rounded_rect(hdc, &inner, &fill, (radius - sc(1)).max(sc(1)));
 }
 
