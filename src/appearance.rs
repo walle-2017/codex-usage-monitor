@@ -154,15 +154,11 @@ pub fn quota_tone(used_percentage: f64) -> QuotaTone {
 
 pub fn taskbar_value_text(
     preset: AppearancePreset,
-    language: LanguageId,
+    _language: LanguageId,
     section: &UsageSection,
     window: UsageWindowKind,
 ) -> TaskbarValueText {
-    let percentage = if language == LanguageId::SimplifiedChinese {
-        poller::remaining_percentage(section.percentage)
-    } else {
-        section.percentage.clamp(0.0, 100.0)
-    };
+    let percentage = poller::remaining_percentage(section.percentage);
 
     let primary = format!("{percentage:.0}%");
     let secondary = if preset.metrics().hide_reset_time {
@@ -268,6 +264,24 @@ mod tests {
         );
         assert_eq!(minimal.primary, "19%");
         assert_eq!(minimal.secondary, None);
+    }
+
+    #[test]
+    fn remaining_quota_is_language_independent() {
+        let section = section_with_local_reset(8.0, 1_789_000_000);
+        for language in [
+            LanguageId::SimplifiedChinese,
+            LanguageId::English,
+            LanguageId::Japanese,
+        ] {
+            let value = taskbar_value_text(
+                AppearancePreset::Compact,
+                language,
+                &section,
+                UsageWindowKind::Session,
+            );
+            assert_eq!(value.primary, "92%");
+        }
     }
 
     #[test]

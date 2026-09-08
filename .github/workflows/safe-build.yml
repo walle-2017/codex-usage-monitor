@@ -34,6 +34,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-small-taskbar-ui.ps1
 
+      - name: Verify language-independent quota semantics
+        shell: pwsh
+        run: ./scripts/assert-language-independent-quota.ps1
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests
