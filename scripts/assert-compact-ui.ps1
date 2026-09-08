@@ -30,35 +30,60 @@ if ($simplifiedChinese -notmatch 'session_window:\s*"5H"') {
 if ($simplifiedChinese -notmatch 'weekly_window:\s*"7D"') {
     throw 'Simplified-Chinese taskbar weekly label must use uppercase 7D.'
 }
-if ($windowProduction -notmatch 'corner_r\s*=\s*sc\(1\)') {
-    throw 'Progress-bar corner radius must be reduced to one logical pixel.'
+
+# Four-zone layout contract: Q1 label, Q2 progress, Q3 percentage, Q4 reset time.
+foreach ($field in @('outer_padding', 'label_bar_gap', 'bar_percent_gap', 'percent_width', 'percent_reset_gap', 'reset_width')) {
+    if ($appearanceProduction -notmatch ("pub\s+" + $field + ":\s*i32")) {
+        throw "Appearance metrics must expose $field."
+    }
 }
-if ($windowProduction -notmatch 'bar_value_width') {
-    throw 'Percentage must use a dedicated fixed-width value area.'
+if (($appearanceProduction | Select-String -Pattern 'outer_padding:\s*6' -AllMatches).Matches.Count -lt 2) {
+    throw 'Compact and Minimal presets must use symmetric 6px horizontal outer padding.'
 }
-if ($appearanceProduction -notmatch 'bar_value_gap:\s*i32') {
-    throw 'Appearance metrics must expose a dedicated progress-to-percentage gap.'
+if (($appearanceProduction | Select-String -Pattern 'label_bar_gap:\s*6' -AllMatches).Matches.Count -lt 2) {
+    throw 'Q1-to-Q2 gap must be 6px in both presets.'
 }
-if (($appearanceProduction | Select-String -Pattern 'bar_value_gap:\s*2' -AllMatches).Matches.Count -lt 2) {
-    throw 'Compact and Minimal presets must both use a 2px progress-to-percentage gap.'
+if (($appearanceProduction | Select-String -Pattern 'percent_reset_gap:\s*6' -AllMatches).Matches.Count -lt 2) {
+    throw 'Q3-to-Q4 gap must match Q1-to-Q2 at 6px.'
 }
-if ($windowProduction -match 'let\s+bar_width\s*=\s*progress_width\s*\+\s*bar_value_width') {
-    throw 'Progress track must not extend underneath the percentage value area.'
+if (($appearanceProduction | Select-String -Pattern 'bar_percent_gap:\s*4' -AllMatches).Matches.Count -lt 2) {
+    throw 'Q2-to-Q3 gap must be the smaller 4px gap.'
 }
-if ($windowProduction -notmatch 'text_x\s*=\s*bar_x\s*\+\s*progress_width\s*\+\s*sc\(metrics\.bar_value_gap\)') {
-    throw 'Percentage text must start after the configured progress-to-percentage gap.'
+if (($appearanceProduction | Select-String -Pattern 'percent_width:\s*36' -AllMatches).Matches.Count -lt 2) {
+    throw 'Q3 percentage slot must be a fixed 36px wide in both presets.'
 }
-if ($windowProduction -notmatch 'model_width\s*=.*?[\r\n]+(?:.*[\r\n]+){0,8}?\s*\+\s*sc\(metrics\.bar_value_gap\)') {
-    throw 'Total widget width must reserve the progress-to-percentage gap.'
-}
-if ($windowProduction -notmatch 'model_usage_width[\s\S]*?sc\(preset\.metrics\(\)\.bar_value_gap\)') {
-    throw 'Per-provider width calculations must reserve the progress-to-percentage gap.'
-}
-if ($windowProduction -notmatch 'model_width\s*=.*?[\r\n]+(?:.*[\r\n]+){0,10}?\s*\+\s*sc\(metrics\.bar_value_width\)') {
-    throw 'Total widget width must reserve the percentage value area so reset time is not clipped.'
+if ($windowProduction -notmatch 'DT_LEFT\s*\|\s*DT_VCENTER\s*\|\s*DT_SINGLELINE') {
+    throw 'Percentage values must remain left aligned within their fixed slot.'
 }
 
-# GDI acrylic-style panel and dotted drag handle contract.
+# Progress track/fill must be completely square-cornered.
+if ($windowProduction -match 'corner_r\s*=') {
+    throw 'Progress bar must not use a rounded-corner radius.'
+}
+if ($windowProduction -match 'CreateRoundRectRgn\([\s\S]{0,250}?bar_rect') {
+    throw 'Progress fill must not use rounded clipping.'
+}
+if ($windowProduction -notmatch 'FillRect\(hdc,\s*&bar_rect') {
+    throw 'Square progress track must be drawn with FillRect.'
+}
+
+# Semantic bar colors and stable percentage text color.
+if ($windowProduction -notmatch 'fn\s+quota_bar_color\s*\(') {
+    throw 'Quota bar color must be selected by a dedicated semantic color helper.'
+}
+foreach ($hex in @('#55A8F2', '#E6B84A', '#D95C5C')) {
+    if ($windowProduction -notmatch [regex]::Escape($hex)) {
+        throw "Quota bar palette must contain $hex."
+    }
+}
+if ($windowProduction -notmatch 'remaining\s*>\s*50\.0' -or $windowProduction -notmatch 'remaining\s*>\s*20\.0') {
+    throw 'Quota bar thresholds must be blue >50%, yellow 21-50%, red <=20% remaining.'
+}
+if ($windowProduction -notmatch 'percentage_text_color\s*=') {
+    throw 'Percentage text must use a stable theme foreground independent of quota color.'
+}
+
+# Acrylic panel and dotted drag handle stay enabled.
 if ($appearanceProduction -notmatch 'panel_radius:\s*i32') {
     throw 'Appearance metrics must expose an acrylic-style panel radius.'
 }
@@ -71,9 +96,6 @@ if ($windowProduction -notmatch 'fn\s+draw_acrylic_panel\s*\(') {
 if ($windowProduction -notmatch 'draw_acrylic_panel\(hdc,\s*width,\s*height,\s*is_dark') {
     throw 'paint_content must draw the acrylic-style panel before content.'
 }
-if ($windowProduction -notmatch 'const\s+DRAG_HANDLE_HIT_W:\s*i32\s*=\s*8') {
-    throw 'Drag handle hit area must be 8 logical pixels wide.'
-}
 if ($windowProduction -notmatch 'fn\s+draw_drag_handle\s*\(') {
     throw 'Widget must draw a dedicated dotted drag handle.'
 }
@@ -82,7 +104,7 @@ if (($windowProduction | Select-String -Pattern 'for\s+row\s+in\s+0\.\.3' -AllMa
     throw 'Drag handle must use a 2x3 dot matrix.'
 }
 if ($windowProduction -match 'Left divider') {
-    throw 'Legacy vertical divider drawing must be removed.'
+    throw 'Legacy vertical divider drawing must remain removed.'
 }
 
 Write-Host 'PASS: compact taskbar UI contract is satisfied.'

@@ -57,6 +57,8 @@ struct AppState {
     language: LanguageId,
     install_channel: InstallChannel,
     appearance_preset: AppearancePreset,
+    small_taskbar_mode: bool,
+    small_show_weekly: bool,
 
     session_percent: f64,
     session_text: String,
@@ -1408,17 +1410,26 @@ const SEGMENT_W: i32 = 10;
 const SEGMENT_H: i32 = 13;
 const SEGMENT_GAP: i32 = 1;
 
-const DRAG_HANDLE_HIT_W: i32 = 8;
+const DRAG_HANDLE_HIT_W: i32 = 12;
+const DRAG_HANDLE_VISUAL_INSET_X: i32 = 4;
+const SMALL_TASKBAR_THRESHOLD: i32 = 34;
+const SMALL_WIDGET_HEIGHT: i32 = 28;
 const DRAG_HANDLE_HIT_H: i32 = 24;
-const RIGHT_MARGIN: i32 = 1;
 
 fn is_drag_handle_point(client_x: i32, client_y: i32) -> bool {
     let hit_h = sc(DRAG_HANDLE_HIT_H);
-    let hit_top = (sc(current_appearance_preset().metrics().widget_height) - hit_h) / 2;
+    let widget_height = {
+        let state = lock_state();
+        state
+            .as_ref()
+            .map(widget_height_for_state)
+            .unwrap_or(sc(AppearancePreset::Compact.metrics().widget_height))
+    };
+    let hit_top = (widget_height - hit_h).max(0) / 2;
     client_x >= 0
         && client_x < sc(DRAG_HANDLE_HIT_W)
         && client_y >= hit_top
-        && client_y < hit_top + hit_h
+        && client_y < (hit_top + hit_h).min(widget_height)
 }
 
 fn cursor_is_on_drag_handle(hwnd: HWND) -> bool {
@@ -1435,6 +1446,22 @@ fn active_model_count(show_claude_code: bool, show_codex: bool, show_antigravity
     (show_claude_code as i32 + show_codex as i32 + show_antigravity as i32).max(1)
 }
 
+fn is_small_taskbar_height_at_dpi(taskbar_height: i32, dpi: u32) -> bool {
+    let threshold = (SMALL_TASKBAR_THRESHOLD as f64 * dpi as f64 / 96.0).round() as i32;
+    taskbar_height <= threshold
+}
+
+fn is_small_taskbar_height(taskbar_height: i32) -> bool {
+    is_small_taskbar_height_at_dpi(taskbar_height, CURRENT_DPI.load(Ordering::Relaxed))
+}
+
+fn widget_height_for_state(state: &AppState) -> i32 {
+    if state.small_taskbar_mode {
+        sc(SMALL_WIDGET_HEIGHT)
+    } else {
+        sc(state.appearance_preset.metrics().widget_height)
+    }
+}
 fn current_appearance_preset() -> AppearancePreset {
     let state = lock_state();
     state.as_ref().map(|s| s.appearance_preset).unwrap_or_default()
@@ -1456,7 +1483,7 @@ fn row_bar_segment_count(active_models: i32, preset: AppearancePreset) -> i32 {
 
 fn usage_layout_widths(_language: LanguageId, preset: AppearancePreset) -> (i32, i32) {
     let metrics = preset.metrics();
-    (metrics.label_width, metrics.secondary_width)
+    (metrics.label_width, metrics.reset_width)
 }
 
 fn usage_percent_for_display(language: LanguageId, used_percentage: f64) -> f64 {
@@ -1473,21 +1500,25 @@ fn total_widget_width_for_preset(
     preset: AppearancePreset,
 ) -> i32 {
     let bar_segments = row_bar_segment_count(active_models, preset);
-    let (label_width, text_width) = usage_layout_widths(language, preset);
+    let (label_width, reset_width) = usage_layout_widths(language, preset);
     let metrics = preset.metrics();
-    let model_width = (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * bar_segments - sc(SEGMENT_GAP)
-        + sc(metrics.bar_value_gap)
-        + sc(metrics.bar_value_width)
-        + sc(metrics.bar_right_margin)
-        + sc(text_width);
+    let progress_width = (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * bar_segments - sc(SEGMENT_GAP);
+    let model_width = progress_width
+        + sc(metrics.bar_percent_gap)
+        + sc(metrics.percent_width)
+        + if reset_width > 0 {
+            sc(metrics.percent_reset_gap) + sc(reset_width)
+        } else {
+            0
+        };
 
     sc(DRAG_HANDLE_HIT_W)
-        + sc(metrics.divider_right_margin)
+        + sc(metrics.outer_padding)
         + sc(label_width)
-        + sc(metrics.label_right_margin)
+        + sc(metrics.label_bar_gap)
         + model_width * active_models
         + sc(metrics.model_right_margin) * (active_models - 1)
-        + sc(RIGHT_MARGIN)
+        + sc(metrics.outer_padding)
 }
 
 fn total_widget_width_for(active_models: i32, language: LanguageId) -> i32 {
@@ -1533,53 +1564,28 @@ fn antigravity_accent_color() -> Color {
     Color::from_hex("#4285F4")
 }
 
-fn claude_usage_text_color(is_dark: bool) -> Color {
-    if is_dark {
-        Color::from_hex("#F09A7A")
+fn quota_bar_color(_is_dark: bool, displayed_percent: f64, language: LanguageId) -> Color {
+    let remaining = if language == LanguageId::SimplifiedChinese {
+        displayed_percent.clamp(0.0, 100.0)
     } else {
-        Color::from_hex("#A94F32")
-    }
-}
-
-fn codex_usage_text_color(is_dark: bool) -> Color {
-    if is_dark {
-        Color::from_hex("#F5F5F5")
-    } else {
-        Color::from_hex("#1F1F1F")
-    }
-}
-
-fn antigravity_usage_text_color(is_dark: bool) -> Color {
-    if is_dark {
-        Color::from_hex("#8AB4F8")
-    } else {
-        Color::from_hex("#1967D2")
-    }
-}
-
-fn codex_quota_status_color(is_dark: bool, displayed_percent: f64) -> Color {
-    let language = {
-        let state = lock_state();
-        state.as_ref().map(|s| s.language).unwrap_or(LanguageId::English)
+        100.0 - displayed_percent.clamp(0.0, 100.0)
     };
-    let used = if language == LanguageId::SimplifiedChinese {
-        100.0 - displayed_percent
+    if remaining > 50.0 {
+        Color::from_hex("#55A8F2")
+    } else if remaining > 20.0 {
+        Color::from_hex("#E6B84A")
     } else {
-        displayed_percent
-    };
-    match appearance::quota_tone(used) {
-        appearance::QuotaTone::Normal => {
-            if is_dark { Color::from_hex("#5AA9E6") } else { Color::from_hex("#2563EB") }
-        }
-        appearance::QuotaTone::Warning => {
-            if is_dark { Color::from_hex("#F4C95D") } else { Color::from_hex("#A16207") }
-        }
-        appearance::QuotaTone::Critical => {
-            if is_dark { Color::from_hex("#FF6B6B") } else { Color::from_hex("#C62828") }
-        }
+        Color::from_hex("#D95C5C")
     }
 }
 
+fn stable_percentage_text_color(is_dark: bool) -> Color {
+    if is_dark {
+        Color::from_hex("#FFFFFF")
+    } else {
+        Color::from_hex("#202020")
+    }
+}
 pub fn run() {
     // Enable Per-Monitor DPI Awareness V2 for crisp rendering at any scale factor
     unsafe {
@@ -1714,6 +1720,8 @@ pub fn run() {
                 language,
                 install_channel,
                 appearance_preset: settings.appearance_preset,
+                small_taskbar_mode: false,
+                small_show_weekly: false,
                 session_percent: 0.0,
                 session_text: "--".to_string(),
                 weekly_percent: 0.0,
@@ -1904,7 +1912,10 @@ fn render_layered() {
     }
 
     let width = total_widget_width();
-    let height = sc(current_appearance_preset().metrics().widget_height);
+    let height = {
+        let state = lock_state();
+        state.as_ref().map(widget_height_for_state).unwrap_or(sc(current_appearance_preset().metrics().widget_height))
+    };
 
     let accent = claude_accent_color();
     let codex_accent = codex_accent_color(is_dark);
@@ -2076,106 +2087,39 @@ fn paint_content(
         let antigravity_session_pct = usage_percent_for_display(language, antigravity_session_pct);
         let antigravity_weekly_pct = usage_percent_for_display(language, antigravity_weekly_pct);
         let preset = current_appearance_preset();
+        let metrics = preset.metrics();
         let (label_width, text_width) = usage_layout_widths(language, preset);
-
-        let client_rect = RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
+        let (small_taskbar_mode, small_show_weekly) = {
+            let state = lock_state();
+            state.as_ref().map(|s| (s.small_taskbar_mode, s.small_show_weekly)).unwrap_or((false, false))
         };
+        let effective_show_session = if small_taskbar_mode { !small_show_weekly } else { show_session_window };
+        let effective_show_weekly = if small_taskbar_mode { small_show_weekly } else { show_weekly_window };
 
+        let client_rect = RECT { left: 0, top: 0, right: width, bottom: height };
         let bg_brush = CreateSolidBrush(COLORREF(bg.to_colorref()));
         FillRect(hdc, &client_rect, bg_brush);
         let _ = DeleteObject(bg_brush);
 
-        draw_acrylic_panel(hdc, width, height, is_dark, preset.metrics().panel_radius);
+        draw_acrylic_panel(hdc, width, height, is_dark, metrics.panel_radius);
         draw_drag_handle(hdc, height, is_dark);
 
-        let content_x = sc(DRAG_HANDLE_HIT_W) + sc(preset.metrics().divider_right_margin);
+        let content_x = sc(DRAG_HANDLE_HIT_W) + sc(metrics.outer_padding);
         let row2_y = height - sc(4) - sc(SEGMENT_H);
-        let row1_y = row2_y - sc(preset.metrics().row_gap) - sc(SEGMENT_H);
+        let row1_y = row2_y - sc(metrics.row_gap) - sc(SEGMENT_H);
         let single_row_y = (height - sc(SEGMENT_H)) / 2;
 
         let _ = SetBkMode(hdc, TRANSPARENT);
         let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
-
         let font_name = native_interop::wide_str("Segoe UI");
-        let font = CreateFontW(
-            sc(preset.metrics().font_height),
-            0,
-            0,
-            0,
-            FW_MEDIUM.0 as i32,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET.0 as u32,
-            OUT_TT_PRECIS.0 as u32,
-            CLIP_DEFAULT_PRECIS.0 as u32,
-            CLEARTYPE_QUALITY.0 as u32,
-            (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
-            PCWSTR::from_raw(font_name.as_ptr()),
-        );
+        let font = CreateFontW(sc(metrics.font_height), 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_TT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32, PCWSTR::from_raw(font_name.as_ptr()));
         let old_font = SelectObject(hdc, font);
 
-        if show_session_window {
-            draw_row(
-                hdc,
-                content_x,
-                if show_weekly_window {
-                    row1_y
-                } else {
-                    single_row_y
-                },
-                is_dark,
-                text_color,
-                strings.session_window,
-                session_pct,
-                session_text,
-                codex_session_pct,
-                codex_session_text,
-                antigravity_session_pct,
-                antigravity_session_text,
-                show_claude_code,
-                show_codex,
-                show_antigravity,
-                accent,
-                codex_accent,
-                antigravity_accent,
-                track,
-                label_width,
-                text_width,
-            );
+        if effective_show_session {
+            draw_row(hdc, content_x, if effective_show_weekly { row1_y } else { single_row_y }, is_dark, language, text_color, strings.session_window, session_pct, session_text, codex_session_pct, codex_session_text, antigravity_session_pct, antigravity_session_text, show_claude_code, show_codex, show_antigravity, accent, codex_accent, antigravity_accent, track, label_width, text_width);
         }
-        if show_weekly_window {
-            draw_row(
-                hdc,
-                content_x,
-                if show_session_window {
-                    row2_y
-                } else {
-                    single_row_y
-                },
-                is_dark,
-                text_color,
-                strings.weekly_window,
-                weekly_pct,
-                weekly_text,
-                codex_weekly_pct,
-                codex_weekly_text,
-                antigravity_weekly_pct,
-                antigravity_weekly_text,
-                show_claude_code,
-                show_codex,
-                show_antigravity,
-                accent,
-                codex_accent,
-                antigravity_accent,
-                track,
-                label_width,
-                text_width,
-            );
+        if effective_show_weekly {
+            draw_row(hdc, content_x, if effective_show_session { row2_y } else { single_row_y }, is_dark, language, text_color, strings.weekly_window, weekly_pct, weekly_text, codex_weekly_pct, codex_weekly_text, antigravity_weekly_pct, antigravity_weekly_text, show_claude_code, show_codex, show_antigravity, accent, codex_accent, antigravity_accent, track, label_width, text_width);
         }
 
         SelectObject(hdc, old_font);
@@ -2549,48 +2493,38 @@ fn tray_reposition_is_suppressed() -> bool {
 
 fn position_at_taskbar() {
     refresh_dpi();
-    // Drop the app-state lock before any Win32 call that may synchronously
-    // re-enter our window procedure.
     let (hwnd, embedded, tray_offset, taskbar_hwnd) = {
         let state = lock_state();
-        let s = match state.as_ref() {
-            Some(s) => s,
-            None => return,
-        };
-
-        // Don't fight the user's drag
-        if s.dragging {
-            return;
-        }
-
+        let s = match state.as_ref() { Some(s) => s, None => return };
+        if s.dragging { return; }
         let taskbar_hwnd = match s.taskbar_hwnd {
             Some(h) => h,
-            None => {
-                diagnose::log("position_at_taskbar skipped: no taskbar handle");
-                return;
-            }
+            None => { diagnose::log("position_at_taskbar skipped: no taskbar handle"); return; }
         };
-
         (s.hwnd.to_hwnd(), s.embedded, s.tray_offset, taskbar_hwnd)
     };
 
     let taskbar_rect = match native_interop::get_taskbar_rect(taskbar_hwnd) {
         Some(r) => r,
-        None => {
-            diagnose::log("position_at_taskbar skipped: unable to query taskbar rect");
-            return;
-        }
+        None => { diagnose::log("position_at_taskbar skipped: unable to query taskbar rect"); return; }
     };
-
     let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
+    let small_mode = is_small_taskbar_height(taskbar_height);
+    {
+        let mut state = lock_state();
+        if let Some(s) = state.as_mut() {
+            if s.small_taskbar_mode != small_mode {
+                s.small_taskbar_mode = small_mode;
+                if small_mode { s.small_show_weekly = false; }
+            }
+        }
+    }
+
     let mut tray_left = taskbar_rect.right;
     let anchor_top = taskbar_rect.top;
     let anchor_height = taskbar_height;
-
     if let Some(tray_hwnd) = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd") {
-        if let Some(tray_rect) = native_interop::get_window_rect_safe(tray_hwnd) {
-            tray_left = tray_rect.left;
-        }
+        if let Some(tray_rect) = native_interop::get_window_rect_safe(tray_hwnd) { tray_left = tray_rect.left; }
     }
 
     let widget_width = total_widget_width();
@@ -2599,43 +2533,29 @@ fn position_at_taskbar() {
     let offset_changed = {
         let mut state = lock_state();
         if let Some(s) = state.as_mut() {
-            if s.tray_offset != tray_offset {
-                s.tray_offset = tray_offset;
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
+            if s.tray_offset != tray_offset { s.tray_offset = tray_offset; true } else { false }
+        } else { false }
     };
-    if offset_changed {
-        save_state_settings();
-    }
+    if offset_changed { save_state_settings(); }
 
-    let widget_height = sc(current_appearance_preset().metrics().widget_height);
+    let widget_height = {
+        let state = lock_state();
+        state.as_ref().map(widget_height_for_state).unwrap_or(sc(AppearancePreset::Compact.metrics().widget_height))
+    };
     let y = compute_anchor_y(anchor_top, anchor_height, widget_height);
     if embedded {
-        // Child window: coordinates relative to parent (taskbar)
         let x = tray_left - taskbar_rect.left - widget_width - tray_offset;
         native_interop::move_window(hwnd, x, y - taskbar_rect.top, widget_width, widget_height);
-        diagnose::log(format!(
-            "positioned embedded widget at x={x} y={} w={widget_width} h={widget_height}",
-            y - taskbar_rect.top
-        ));
+        diagnose::log(format!("positioned embedded widget at x={x} y={} w={widget_width} h={widget_height}", y - taskbar_rect.top));
     } else {
-        // Topmost popup: screen coordinates
         let x = tray_left - widget_width - tray_offset;
         native_interop::move_window(hwnd, x, y, widget_width, widget_height);
-        diagnose::log(format!(
-            "positioned fallback widget at x={x} y={y} w={widget_width} h={widget_height}"
-        ));
+        diagnose::log(format!("positioned fallback widget at x={x} y={y} w={widget_width} h={widget_height}"));
     }
 }
 
 fn compute_anchor_y(anchor_top: i32, anchor_height: i32, widget_height: i32) -> i32 {
-    let anchor_bottom = anchor_top + anchor_height;
-    (anchor_bottom - widget_height).max(anchor_top)
+    anchor_top + (anchor_height - widget_height).max(0) / 2
 }
 
 /// WinEvent callback for tray icon location changes
@@ -2898,7 +2818,7 @@ unsafe extern "system" fn wnd_proc(
                             let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
                             let anchor_top = taskbar_rect.top;
                             let anchor_height = taskbar_height;
-                            let widget_height = sc(s.appearance_preset.metrics().widget_height);
+                            let widget_height = widget_height_for_state(s);
                             let y = compute_anchor_y(anchor_top, anchor_height, widget_height);
                             let x = if embedded {
                                 tray_left - taskbar_rect.left - widget_width - new_offset
@@ -2975,6 +2895,26 @@ unsafe extern "system" fn wnd_proc(
                     None
                 }
             };
+            if drag_result.is_none() {
+                let client_x = (lparam.0 & 0xFFFF) as i16 as i32;
+                let client_y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+                if !is_drag_handle_point(client_x, client_y) {
+                    let toggled = {
+                        let mut state = lock_state();
+                        if let Some(s) = state.as_mut() {
+                            if s.small_taskbar_mode {
+                                s.small_show_weekly = !s.small_show_weekly;
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    };
+                    if toggled { render_layered(); }
+                }
+            }
             if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
                 let _ = ReleaseCapture();
                 if let Some((target_index, target_taskbar)) = taskbar_at_point(pt) {
@@ -3838,6 +3778,7 @@ fn draw_row(
     x: i32,
     y: i32,
     is_dark: bool,
+    language: LanguageId,
     text_color: &Color,
     label: &str,
     claude_percent: f64,
@@ -3849,9 +3790,9 @@ fn draw_row(
     show_claude_code: bool,
     show_codex: bool,
     show_antigravity: bool,
-    claude_accent: &Color,
-    codex_accent: &Color,
-    antigravity_accent: &Color,
+    _claude_accent: &Color,
+    _codex_accent: &Color,
+    _antigravity_accent: &Color,
     track: &Color,
     label_width: i32,
     text_width: i32,
@@ -3860,29 +3801,8 @@ fn draw_row(
     let active_models = active_model_count(show_claude_code, show_codex, show_antigravity);
     let preset = current_appearance_preset();
     let segment_count = row_bar_segment_count(active_models, preset);
-    let use_model_text_colors = active_models > 1;
-    let claude_value_color = if use_model_text_colors {
-        claude_usage_text_color(is_dark)
-    } else {
-        *text_color
-    };
-    let codex_bar_color = if active_models == 1 && show_codex {
-        codex_quota_status_color(is_dark, codex_percent)
-    } else {
-        *codex_accent
-    };
-    let codex_value_color = if active_models == 1 && show_codex {
-        codex_bar_color
-    } else if use_model_text_colors {
-        codex_usage_text_color(is_dark)
-    } else {
-        *text_color
-    };
-    let antigravity_value_color = if use_model_text_colors {
-        antigravity_usage_text_color(is_dark)
-    } else {
-        *text_color
-    };
+    let metrics = preset.metrics();
+    let percentage_text_color = stable_percentage_text_color(is_dark);
 
     unsafe {
         let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
@@ -3893,67 +3813,37 @@ fn draw_row(
             right: x + sc(label_width),
             bottom: y + seg_h,
         };
-        let _ = DrawTextW(
-            hdc,
-            &mut label_wide,
-            &mut label_rect,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
-        );
+        let _ = DrawTextW(hdc, &mut label_wide, &mut label_rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-        let mut model_x = x + sc(label_width) + sc(preset.metrics().label_right_margin);
+        let mut model_x = x + sc(label_width) + sc(metrics.label_bar_gap);
         if show_claude_code {
-            draw_usage_bar(
-                hdc,
-                model_x,
-                y,
-                segment_count,
-                claude_percent,
-                claude_text,
-                claude_accent,
-                track,
-                &claude_value_color,
-                text_width,
-            );
-            model_x += model_usage_width(segment_count, text_width, preset) + sc(preset.metrics().model_right_margin);
+            let bar_color = quota_bar_color(is_dark, claude_percent, language);
+            draw_usage_bar(hdc, model_x, y, segment_count, claude_percent, claude_text, &bar_color, track, &percentage_text_color, text_width);
+            model_x += model_usage_width(segment_count, text_width, preset) + sc(metrics.model_right_margin);
         }
         if show_codex {
-            draw_usage_bar(
-                hdc,
-                model_x,
-                y,
-                segment_count,
-                codex_percent,
-                codex_text,
-                &codex_bar_color,
-                track,
-                &codex_value_color,
-                text_width,
-            );
-            model_x += model_usage_width(segment_count, text_width, preset) + sc(preset.metrics().model_right_margin);
+            let bar_color = quota_bar_color(is_dark, codex_percent, language);
+            draw_usage_bar(hdc, model_x, y, segment_count, codex_percent, codex_text, &bar_color, track, &percentage_text_color, text_width);
+            model_x += model_usage_width(segment_count, text_width, preset) + sc(metrics.model_right_margin);
         }
         if show_antigravity {
-            draw_usage_bar(
-                hdc,
-                model_x,
-                y,
-                segment_count,
-                antigravity_percent,
-                antigravity_text,
-                antigravity_accent,
-                track,
-                &antigravity_value_color,
-                text_width,
-            );
+            let bar_color = quota_bar_color(is_dark, antigravity_percent, language);
+            draw_usage_bar(hdc, model_x, y, segment_count, antigravity_percent, antigravity_text, &bar_color, track, &percentage_text_color, text_width);
         }
     }
 }
 
 fn model_usage_width(segment_count: i32, text_width: i32, preset: AppearancePreset) -> i32 {
-    (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count - sc(SEGMENT_GAP)
-        + sc(preset.metrics().bar_value_gap)
-        + sc(preset.metrics().bar_value_width)
-        + sc(preset.metrics().bar_right_margin)
-        + sc(text_width)
+    let metrics = preset.metrics();
+    let progress_width = (sc(SEGMENT_W) + sc(SEGMENT_GAP)) * segment_count - sc(SEGMENT_GAP);
+    progress_width
+        + sc(metrics.bar_percent_gap)
+        + sc(metrics.percent_width)
+        + if text_width > 0 {
+            sc(metrics.percent_reset_gap) + sc(text_width)
+        } else {
+            0
+        }
 }
 
 fn draw_usage_bar(
@@ -3975,43 +3865,23 @@ fn draw_usage_bar(
     let progress_width = segment_count * (seg_w + seg_gap) - seg_gap;
     let bar_h = sc(metrics.bar_height).min(seg_h);
     let bar_y = y + (seg_h - bar_h) / 2;
-    let corner_r = sc(1).min((bar_h / 2).max(1));
 
     unsafe {
         let percent_clamped = percent.clamp(0.0, 100.0);
-        let bar_rect = RECT {
-            left: bar_x,
-            top: bar_y,
-            right: bar_x + progress_width,
-            bottom: bar_y + bar_h,
-        };
-        draw_rounded_rect(hdc, &bar_rect, track, corner_r);
+        let bar_rect = RECT { left: bar_x, top: bar_y, right: bar_x + progress_width, bottom: bar_y + bar_h };
+        let track_brush = CreateSolidBrush(COLORREF(track.to_colorref()));
+        FillRect(hdc, &bar_rect, track_brush);
+        let _ = DeleteObject(track_brush);
 
         let fill_width = (progress_width as f64 * percent_clamped / 100.0).round() as i32;
         if fill_width > 0 {
-            let fill_rect = RECT {
-                left: bar_x,
-                top: bar_y,
-                right: bar_x + fill_width,
-                bottom: bar_y + bar_h,
-            };
-            let rgn = CreateRoundRectRgn(
-                bar_rect.left,
-                bar_rect.top,
-                bar_rect.right + 1,
-                bar_rect.bottom + 1,
-                corner_r * 2,
-                corner_r * 2,
-            );
-            let _ = SelectClipRgn(hdc, rgn);
-            let brush = CreateSolidBrush(COLORREF(accent.to_colorref()));
-            FillRect(hdc, &fill_rect, brush);
-            let _ = DeleteObject(brush);
-            let _ = SelectClipRgn(hdc, HRGN::default());
-            let _ = DeleteObject(rgn);
+            let fill_rect = RECT { left: bar_x, top: bar_y, right: bar_x + fill_width, bottom: bar_y + bar_h };
+            let fill_brush = CreateSolidBrush(COLORREF(accent.to_colorref()));
+            FillRect(hdc, &fill_rect, fill_brush);
+            let _ = DeleteObject(fill_brush);
         }
 
-        let text_x = bar_x + progress_width + sc(metrics.bar_value_gap);
+        let text_x = bar_x + progress_width + sc(metrics.bar_percent_gap);
         draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
     }
 }
@@ -4052,7 +3922,7 @@ fn draw_usage_value_text(
         let mut primary_rect = RECT {
             left: text_x,
             top: y,
-            right: text_x + sc(metrics.bar_value_width),
+            right: text_x + sc(metrics.percent_width),
             bottom: y + row_height,
         };
         let _ = DrawTextW(
@@ -4083,7 +3953,7 @@ fn draw_usage_value_text(
             };
             let _ = SetTextColor(hdc, COLORREF(secondary_color.to_colorref()));
             let mut secondary_wide: Vec<u16> = secondary.encode_utf16().collect();
-            let secondary_x = text_x + sc(metrics.bar_value_width) + sc(metrics.bar_right_margin);
+            let secondary_x = text_x + sc(metrics.percent_width) + sc(metrics.percent_reset_gap);
             let mut secondary_rect = RECT {
                 left: secondary_x,
                 top: y,
@@ -4138,9 +4008,8 @@ fn draw_drag_handle(hdc: HDC, height: i32, is_dark: bool) {
     let dot = sc(2).max(1);
     let gap_x = sc(1).max(1);
     let gap_y = sc(2).max(1);
-    let matrix_w = dot * 2 + gap_x;
     let matrix_h = dot * 3 + gap_y * 2;
-    let origin_x = (sc(DRAG_HANDLE_HIT_W) - matrix_w) / 2;
+    let origin_x = sc(DRAG_HANDLE_VISUAL_INSET_X);
     let origin_y = (height - matrix_h) / 2;
     let color = if is_dark {
         Color::from_hex("#69727C")
@@ -4183,6 +4052,21 @@ fn draw_rounded_rect(hdc: HDC, rect: &RECT, color: &Color, radius: i32) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn centers_widget_vertically() {
+        assert_eq!(compute_anchor_y(100, 48, 42), 103);
+        assert_eq!(compute_anchor_y(100, 32, 28), 102);
+        assert_eq!(compute_anchor_y(100, 24, 28), 100);
+    }
+
+    #[test]
+    fn small_taskbar_threshold_is_dpi_aware() {
+        assert!(is_small_taskbar_height_at_dpi(32, 96));
+        assert!(is_small_taskbar_height_at_dpi(34, 96));
+        assert!(!is_small_taskbar_height_at_dpi(35, 96));
+        assert!(is_small_taskbar_height_at_dpi(51, 144));
+        assert!(!is_small_taskbar_height_at_dpi(52, 144));
+    }
     #[test]
     fn service_tooltip_combines_visible_quota_rows() {
         assert_eq!(

@@ -30,6 +30,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-compact-ui.ps1
 
+      - name: Verify small-taskbar UI contract
+        shell: pwsh
+        run: ./scripts/assert-small-taskbar-ui.ps1
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests

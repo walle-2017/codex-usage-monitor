@@ -15,6 +15,17 @@ if ($moveBody -match 'current_appearance_preset\s*\(') {
     throw 'WM_MOUSEMOVE must not re-lock STATE through current_appearance_preset() while dragging.'
 }
 
+$hitTestMatch = [regex]::Match(
+    $source,
+    '(?s)fn\s+is_drag_handle_point\s*\([^)]*\)\s*->\s*bool\s*\{(?<body>.*?)\n\}'
+)
+if (-not $hitTestMatch.Success) {
+    throw 'Unable to locate is_drag_handle_point().'
+}
+if ($hitTestMatch.Groups['body'].Value -match 'current_appearance_preset\s*\(') {
+    throw 'is_drag_handle_point() must not re-lock STATE through current_appearance_preset().'
+}
+
 if ($source -notmatch 'WM_CAPTURECHANGED') {
     throw 'Drag handling must clear dragging state when mouse capture is lost (WM_CAPTURECHANGED).'
 }
