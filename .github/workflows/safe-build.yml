@@ -31,6 +31,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-clean-codex-only-source.ps1
 
+      - name: Verify v1.0.0 version contract
+        shell: pwsh
+        run: ./scripts/assert-v1-version.ps1
+
       - name: Verify taskbar drag capture handling
         shell: pwsh
         run: ./scripts/assert-drag-handler-safe.ps1
