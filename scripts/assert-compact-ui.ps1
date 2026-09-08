@@ -41,16 +41,22 @@ if (($appearanceProduction | Select-String -Pattern 'outer_padding:\s*6' -AllMat
     throw 'Compact and Minimal presets must use symmetric 6px horizontal outer padding.'
 }
 if (($appearanceProduction | Select-String -Pattern 'label_bar_gap:\s*6' -AllMatches).Matches.Count -lt 2) {
-    throw 'Q1-to-Q2 gap must be 6px in both presets.'
+    throw 'Q1-to-Q2 gap must remain 6px in both presets.'
 }
-if (($appearanceProduction | Select-String -Pattern 'percent_reset_gap:\s*6' -AllMatches).Matches.Count -lt 2) {
-    throw 'Q3-to-Q4 gap must match Q1-to-Q2 at 6px.'
+if (($appearanceProduction | Select-String -Pattern 'percent_reset_gap:\s*3' -AllMatches).Matches.Count -lt 2) {
+    throw 'Q3-to-Q4 gap must be tightened to 3px.'
 }
 if (($appearanceProduction | Select-String -Pattern 'bar_percent_gap:\s*4' -AllMatches).Matches.Count -lt 2) {
-    throw 'Q2-to-Q3 gap must be the smaller 4px gap.'
+    throw 'Q2-to-Q3 gap must remain 4px.'
 }
 if (($appearanceProduction | Select-String -Pattern 'percent_width:\s*36' -AllMatches).Matches.Count -lt 2) {
-    throw 'Q3 percentage slot must be a fixed 36px wide in both presets.'
+    throw 'Q3 percentage slot must remain a fixed 36px wide in both presets.'
+}
+if ($appearanceProduction -notmatch 'reset_width:\s*34') {
+    throw 'Compact Q4 reset slot must be tightened to 34px.'
+}
+if ($appearanceProduction -notmatch 'secondary_font_height:\s*-11') {
+    throw 'Compact reset time/date font must be increased to -11 for clarity.'
 }
 if ($windowProduction -notmatch 'DT_LEFT\s*\|\s*DT_VCENTER\s*\|\s*DT_SINGLELINE') {
     throw 'Percentage values must remain left aligned within their fixed slot.'
@@ -83,12 +89,12 @@ if ($windowProduction -notmatch 'percentage_text_color\s*=') {
     throw 'Percentage text must use a stable theme foreground independent of quota color.'
 }
 
-# Acrylic panel and dotted drag handle stay enabled.
+# Square GDI panel and dotted drag handle contract.
 if ($appearanceProduction -notmatch 'panel_radius:\s*i32') {
-    throw 'Appearance metrics must expose an acrylic-style panel radius.'
+    throw 'Appearance metrics must expose the panel corner metric.'
 }
-if (($appearanceProduction | Select-String -Pattern 'panel_radius:\s*5' -AllMatches).Matches.Count -lt 2) {
-    throw 'Compact and Minimal presets must both use a 5px panel radius.'
+if (($appearanceProduction | Select-String -Pattern 'panel_radius:\s*0' -AllMatches).Matches.Count -lt 2) {
+    throw 'Compact and Minimal panels must both use zero corner radius.'
 }
 if ($windowProduction -notmatch 'fn\s+draw_acrylic_panel\s*\(') {
     throw 'Widget must draw a unified GDI acrylic-style panel background.'
@@ -102,6 +108,9 @@ if ($windowProduction -notmatch 'fn\s+draw_drag_handle\s*\(') {
 if (($windowProduction | Select-String -Pattern 'for\s+row\s+in\s+0\.\.3' -AllMatches).Matches.Count -lt 1 -or
     ($windowProduction | Select-String -Pattern 'for\s+col\s+in\s+0\.\.2' -AllMatches).Matches.Count -lt 1) {
     throw 'Drag handle must use a 2x3 dot matrix.'
+}
+if ($windowProduction -notmatch 'DRAG_HANDLE_VISUAL_INSET_X:\s*i32\s*=\s*7') {
+    throw 'Drag-handle dots must be inset to the visual midpoint between the panel edge and Q1 labels.'
 }
 if ($windowProduction -match 'Left divider') {
     throw 'Legacy vertical divider drawing must remain removed.'
