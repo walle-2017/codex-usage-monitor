@@ -9,62 +9,53 @@
 
 ![Screenshot](.github/animation.gif)
 
-A lightweight native Windows taskbar widget for monitoring Codex usage, with optional Claude Code and Google Antigravity usage display.
+A lightweight native Windows taskbar widget for monitoring **Codex usage**. The v1.0.0 fork is intentionally Codex-only: it reads the credentials already maintained by Codex and shows the remaining 5-hour and weekly quota directly in the taskbar.
 
-It sits in your taskbar and shows how much of your Codex usage window remains without opening the Codex app or account usage page.
+## Features
 
-## What You Get
-
-- A **5h** bar for your current Codex usage window
-- A **7d** bar for your current weekly window
-- Simplified Chinese display with explicit remaining usage and reset countdowns
-- Optional Claude Code usage alongside Codex
-- Optional Antigravity model usage bars for Google's 5-hour and weekly Gemini quota windows
-- A live countdown until each limit resets
+- Codex **5h** and **7d** remaining-quota bars
+- Reset time/date display and live countdown data
+- Compact and minimal taskbar appearances
+- Independent visibility controls for the 5h and 7d rows, with at least one row always visible
 - Optional low-quota alerts at 10%, 20%, or 30% remaining, deduplicated per reset window
-- Independent display controls for the 5-hour and weekly rows
-- A small native widget that lives directly in the Windows taskbar
-- One system tray icon that matches the desktop app icon
-- Left-click the tray icon to toggle the taskbar widget on or off
-- Right-click options for refresh, monitored services, usage rows, quota alerts, update frequency, language, startup, widget visibility, and updates
-- Multi-monitor taskbar placement, so the widget can live on the taskbar for the screen you prefer
+- Configurable refresh interval: 1 minute, 5 minutes, 15 minutes, or 1 hour
+- Windows light/dark theme support
+- Simplified Chinese and multiple other UI languages
+- Multi-monitor taskbar placement and drag positioning
+- Explorer restart watchdog and single-instance protection
+- Windows manual system-proxy support when explicit proxy environment variables are absent
+- One tray icon for refresh/settings/exit while the taskbar widget remains visible
 
-## Who This Is For
+## Safety behavior
 
-This app is for Windows users who already have **Codex CLI or the Codex app installed and signed in**.
+This fork deliberately removes automatic Codex CLI token refresh from the monitor.
 
-Codex is enabled by default. The app reads the same local credentials used by Codex.
+The app reads Codex credentials from `$CODEX_HOME/auth.json` or `~/.codex/auth.json` and calls the Codex usage endpoint over HTTPS. If the endpoint returns `401` or `403`, the monitor reports an authentication error and pauses polling until the credential source changes. It **does not launch `codex.exe`, `codex.cmd`, `codex.ps1`, or `codex exec`** to refresh credentials.
 
-Antigravity support is optional too. To show Antigravity usage, install and sign in to Google Antigravity, then enable the **Antigravity** service from the right-click **Monitored services** menu.
-
-It works best if you want a simple "how close am I to the limit?" display that is always visible.
+To recover from an expired login, sign in through the official Codex CLI/app yourself, then refresh or restart Codex Usage.
 
 ## Requirements
 
 - Windows 10 or Windows 11
-- Codex CLI or Codex app installed and authenticated
-- Optional: Claude Code installed and authenticated
-- Optional: Google Antigravity installed and authenticated, if you want Antigravity usage
-
-If you use Claude Code through WSL, that is supported too. The monitor can read your Claude Code credentials from Windows or from your WSL environment.
+- Codex CLI or the Codex app installed and authenticated
 
 ## Install
 
-For a per-user installation, download `install.ps1` from the [latest release](https://github.com/upstream-ray/codex-usage-monitor/releases/latest), then run:
+For a per-user installation, download `install.ps1` from the [latest fork release](https://github.com/walle-2017/codex-usage-monitor/releases/latest), then run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-The installer verifies the release SHA256 and installs to `%LOCALAPPDATA%\Programs\CodexUsage` without administrator access. It adds a Start menu shortcut and an entry in Windows Installed Apps.
+The installer verifies the release SHA256, installs without administrator access to `%LOCALAPPDATA%\Programs\CodexUsage`, creates Start-menu and desktop shortcuts, and registers an uninstall entry in Windows Installed Apps.
 
-For portable use, download `codex-usage.exe` from the same release and run it from any user-writable directory. You can also build it locally:
+For portable use, download `codex-usage.exe` from the same release and run it from a user-writable directory. To build locally:
 
 ```powershell
 cargo build --release
 ```
 
-Local builds create the executable at `target\release\codex-usage.exe`.
+The executable is created at `target\release\codex-usage.exe`.
 
 ## Uninstall
 
@@ -74,148 +65,78 @@ Uninstall **Codex Usage** from Windows Settings > Apps > Installed apps, or run:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexUsage\uninstall.ps1"
 ```
 
-Uninstalling preserves `%APPDATA%\CodexUsage\settings.json`. Add `-RemoveSettings` to delete settings explicitly. See [Installation model](docs/installation.md) for upgrade, portable, startup, and WinGet behavior.
+Normal uninstall preserves `%APPDATA%\CodexUsage\settings.json`. Add `-RemoveSettings` for a full settings reset. See [Installation model](docs/installation.md).
 
 ## Use
+
+Run `codex-usage.exe` or the installed shortcut. The widget embeds into the selected Windows taskbar and the notification area keeps one tray icon available for commands.
+
+- Drag the left handle to reposition the widget.
+- On multi-monitor systems, move the widget to the taskbar you want to use.
+- Right-click the widget or tray icon for Refresh, Update Frequency, usage-row controls, quota alerts, Appearance, Start with Windows, Reset Position, Language, the read-only version entry, and Exit.
+- The taskbar widget is intentionally always visible while the process is running; there is no hide/show toggle.
+
+### Usage display and alerts
+
+The widget shows remaining quota consistently in every language. Progress length, percentage text, and semantic status color all use the same remaining-quota value.
+
+Use the settings menu to show both quota windows or only one. Low-quota alerts can be set to 10%, 20%, or 30% remaining and are emitted once per quota-reset window.
+
+### Appearance
+
+Two taskbar presets are retained:
+
+- **Compact**: quota bar + percentage + reset time/date
+- **Minimal**: quota bar + percentage only
+
+Both follow the Windows light/dark theme. Small-taskbar layouts are handled separately to preserve readability.
+
+## Network and proxy behavior
+
+If `HTTPS_PROXY`, `HTTP_PROXY`, or `ALL_PROXY` is explicitly set, the HTTP client uses the normal proxy environment behavior. Otherwise, on Windows the app can read the current user's manual proxy configuration from:
+
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings
+```
+
+It reads `ProxyEnable` / `ProxyServer` and applies the result only to the current process. It does not modify Windows proxy settings. PAC/WPAD automatic proxy discovery is not implemented.
+
+Because the Codex request includes an OAuth Bearer token inside TLS, only use proxies you trust.
+
+## Diagnostics
 
 Run:
 
 ```powershell
-codex-usage
+codex-usage.exe --diagnose
 ```
 
-Once running, it will appear in your taskbar and as one tray icon in the notification area.
+The log is written to `%TEMP%\codex-usage.log`. It records application/version information, executable path, polling failure category, retry timing, and taskbar recovery events. It does not record access tokens or credential-file contents. See [Troubleshooting](docs/troubleshooting.md).
 
-- Drag the left divider to move the taskbar widget
-- On multi-monitor setups, drag the widget onto another Windows taskbar to move it to that screen
-- Right-click the taskbar widget or tray icon for refresh, monitored services, usage rows, quota alerts, update frequency, Start with Windows, reset position, language, updates, and exit
-- Left-click the tray icon to toggle the taskbar widget on or off
-- Enable `Start with Windows` from the right-click menu if you want it to launch automatically when you sign in
-
-### Monitored Services
-
-Use the right-click **Monitored services** menu to choose which independent services the widget displays. The services are not mutually exclusive, so you can monitor more than one account at the same time:
-
-- **Codex** is enabled by default
-- **Claude Code** can be enabled alongside Codex or shown by itself when Claude Code CLI is installed and authenticated
-- **Antigravity** can be enabled alongside the other providers or shown by itself as its own service column
-
-When multiple services are shown, each service has its own usage bar and matching usage text color. Antigravity prefers Google's Gemini quota summary when available and falls back to model quota data when needed.
-
-Claude Desktop and Claude Code CLI use separate local sessions. Signing in to Claude Desktop does not enable Claude Code monitoring. When no supported Claude Code CLI credentials are available, the menu shows **Claude Code (CLI login required)** as a disabled item and automatically keeps that service off.
-
-### System Tray Icon
-
-The app always shows one tray icon using the same embedded icon as the executable and desktop shortcut, regardless of how many services are enabled.
-
-Hovering over the tray icon shows a compact summary for all enabled services. Left-clicking it toggles the taskbar widget; right-clicking it opens the settings menu.
-
-### Usage Display And Alerts
-
-Use the right-click **Usage display** menu to show both quota rows or only one. The app always keeps at least one row visible.
-
-Use **Quota alerts** to choose a remaining-quota threshold of 10%, 20%, or 30%. Alerts are off by default. Each provider and quota window is notified only once until its reset time changes, including across app restarts.
-
-In Simplified Chinese, the compact taskbar rows use `5h` / `7d`, one continuous progress bar, remaining percentage, and a concrete local reset value such as `18:30重置` or `07/17重置`.
-
-## Diagnostics
-
-If you need to troubleshoot startup or visibility issues, run:
-
-```powershell
-codex-usage --diagnose
-```
-
-This writes a log file to:
-
-```text
-%TEMP%\codex-usage.log
-```
-
-The log records the application version, install channel, executable path, polling failure category, and retry timing. It does not log access tokens or credential contents. See [Troubleshooting](docs/troubleshooting.md) for the taskbar error labels and recovery steps.
-
-Settings are saved to:
+Settings are stored at:
 
 ```text
 %APPDATA%\CodexUsage\settings.json
 ```
 
-## Account Support
+Current settings cover taskbar position/screen, polling frequency, language, appearance, visible quota rows, alert threshold, and alert de-duplication state.
 
-Codex usage is read from the account authenticated in the local Codex installation. Optional Claude Code monitoring works with the account types supported by Claude Code.
+## Privacy
 
-As of **March 19, 2026**, Anthropic's Claude Code setup documentation says:
+The application reads the local Codex access token/account identifier and sends them only as required to the ChatGPT Codex usage endpoint. It has no project backend, analytics, or telemetry and does not upload project files.
 
-- **Supported:** Pro, Max, Teams, Enterprise, and Console accounts
-- **Not supported:** the free Claude.ai plan
+The monitor does not directly edit `auth.json` and does not start Codex CLI processes for authentication recovery.
 
-If Anthropic changes Claude Code availability in the future, this app should follow whatever Claude Code supports, as long as the usage data remains exposed through the same authenticated endpoints.
+## Version and releases
 
-## Privacy And Security
+The first cleaned Codex-only baseline is **1.0.0**. The in-app menu displays `v1.0.0` from the package version, and Windows executable metadata is generated from the same source.
 
-This project is **open source**, so you can inspect exactly what it does.
+The application itself contains no update checker or in-app updater. Upgrades are explicit: install a newer fork release or replace the portable executable yourself.
 
-What the app reads:
-
-- Your local Claude Code OAuth credentials from `~/.claude/.credentials.json`
-- If `CLAUDE_CONFIG_DIR` is set, the Claude Code credentials file in that directory
-- If needed, the same credentials file inside an installed WSL distro
-- If Codex is enabled, your local Codex credentials from `$CODEX_HOME/auth.json` or `~/.codex/auth.json`
-- If Antigravity is enabled, your local Antigravity OAuth token from Windows Credential Manager target `gemini:antigravity`
-
-What the app sends over the network:
-
-- Requests to Anthropic's Claude endpoints to read your usage and rate-limit information
-- Requests to ChatGPT's Codex usage endpoint to read your Codex usage and rate-limit information, if Codex is enabled
-- Requests to Google's Cloud Code / Antigravity endpoints to read your Antigravity quota information, if Antigravity is enabled
-- Requests to GitHub only if you use the app's update check / self-update feature
-- If proxy environment variables such as `HTTPS_PROXY`, `HTTP_PROXY`, or `ALL_PROXY` are set, those outbound requests may use that proxy
-
-What the app stores locally:
-
-- Widget position
-- Selected taskbar / screen
-- Widget visibility
-- Polling frequency
-- Language preference
-- Last update check time
-- Visible quota rows and low-quota alert threshold
-- Quota-window notification keys used to prevent duplicate alerts
-- Displayed model preferences
-
-What it does **not** do:
-
-- It does not send your credentials to any other server
-- It does not use a separate backend service
-- It does not collect analytics or telemetry
-- It does not upload your project files
-- It does not directly edit your Codex credentials file
-- It does not read or reuse Claude Desktop authentication data
-
-Notes:
-
-- If your Claude Code token is expired, the app may ask the local Claude CLI to refresh it in the background
-- If your Codex token is expired, the app may ask the local Codex CLI to refresh it in the background. The monitor does not write `auth.json` itself; any credential update is handled by the Codex CLI.
-- If your Antigravity token is expired, open Antigravity and sign in again. The monitor does not write Windows Credential Manager entries itself.
-- Portable installs can update themselves by downloading the latest release from this repository
-- Proxies should be trusted because proxied usage requests include your OAuth bearer token inside the TLS connection
-
-## How It Works
-
-The monitor:
-
-1. Finds your enabled model login credentials
-2. Reads your current usage from Anthropic, ChatGPT, and/or Google's Antigravity endpoints
-3. Shows the result directly in the Windows taskbar
-4. Keeps the widget aligned with the selected taskbar and tray area
-5. Refreshes periodically in the background
-
-If the newer usage endpoint is unavailable, it can fall back to reading the rate-limit headers returned by Claude's Messages API.
-
-## Open Source
+## Open source
 
 This project is licensed under the MIT License. The original [LICENSE](LICENSE) and copyright notice are preserved.
 
-Codex Usage is a maintained derivative of [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor). Thanks to Craig Constable and the upstream contributors for the original project. Changes in this repository are not affiliated with or endorsed by the upstream maintainers or OpenAI.
+Codex Usage is derived from [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) and later upstream work. The current fork is maintained independently and is not affiliated with or endorsed by upstream maintainers or OpenAI.
 
-If you want to inspect the behavior or audit the code, everything is in this repository.
+See [README-FORK.md](README-FORK.md) for the fork-specific safety and maintenance baseline.
