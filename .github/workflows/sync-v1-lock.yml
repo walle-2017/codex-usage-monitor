@@ -1,0 +1,42 @@
+name: Sync v1 Lockfile
+
+on:
+  push:
+    branches:
+      - codex-only-v1-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex-only-v1-cleanup
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Refresh Cargo.lock root package version
+        run: cargo update --workspace
+
+      - name: Verify lockfile change is limited to the root package version
+        shell: bash
+        run: |
+          git diff -- Cargo.lock
+          test "$(git diff --name-only)" = "Cargo.lock"
+          grep -A2 '^name = "codex-usage"$' Cargo.lock | grep -q '^version = "1.0.0"$'
+
+      - name: Commit refreshed lockfile
+        shell: bash
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore: sync Cargo.lock for v1.0.0"
+          git push origin HEAD:codex-only-v1-cleanup
