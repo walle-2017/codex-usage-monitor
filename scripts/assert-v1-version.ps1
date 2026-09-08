@@ -39,9 +39,10 @@ if ($BuildSource -notmatch 'env!\("CARGO_PKG_VERSION"\)') {
     throw 'Windows executable version metadata must derive from CARGO_PKG_VERSION.'
 }
 
-$OldProductVersionHits = git grep -n -F '1.9.1' -- . ':(exclude)Cargo.lock' 2>$null
+$OldProductVersion = '1.9' + '.1'
+$OldProductVersionHits = git grep -n -F $OldProductVersion -- . ':(exclude)Cargo.lock' ':(exclude)scripts/assert-v1-version.ps1' 2>$null
 if ($LASTEXITCODE -eq 0 -and $OldProductVersionHits) {
-    throw "Old product version 1.9.1 remains in tracked files:`n$($OldProductVersionHits -join "`n")"
+    throw "Old product version $OldProductVersion remains in tracked files:`n$($OldProductVersionHits -join "`n")"
 }
 if ($LASTEXITCODE -notin @(0, 1)) {
     throw 'git grep failed while checking for stale product version strings.'
