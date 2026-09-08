@@ -126,7 +126,6 @@ const IDM_FREQ_15MIN: u16 = 12;
 const IDM_FREQ_1HOUR: u16 = 13;
 const IDM_START_WITH_WINDOWS: u16 = 20;
 const IDM_RESET_POSITION: u16 = 30;
-const IDM_VERSION_ACTION: u16 = 31;
 const IDM_LANG_SYSTEM: u16 = 40;
 const IDM_LANG_ENGLISH: u16 = 41;
 const IDM_LANG_DUTCH: u16 = 42;
@@ -139,9 +138,6 @@ const IDM_LANG_TRADITIONAL_CHINESE: u16 = 48;
 const IDM_LANG_RUSSIAN: u16 = 49;
 const IDM_LANG_PORTUGUESE_BRAZIL: u16 = 50;
 const IDM_LANG_SIMPLIFIED_CHINESE: u16 = 51;
-const IDM_MODEL_CLAUDE_CODE: u16 = 60;
-const IDM_MODEL_CODEX: u16 = 61;
-const IDM_MODEL_ANTIGRAVITY: u16 = 62;
 const IDM_SHOW_SESSION_WINDOW: u16 = 71;
 const IDM_SHOW_WEEKLY_WINDOW: u16 = 72;
 const IDM_ALERT_OFF: u16 = 80;
@@ -457,6 +453,10 @@ fn load_settings_from_paths(
 }
 
 fn normalize_settings(mut settings: SettingsFile) -> SettingsFile {
+    settings.show_claude_code = false;
+    settings.show_codex = true;
+    settings.show_antigravity = false;
+    settings.widget_visible = true;
     if !settings.show_claude_code && !settings.show_codex && !settings.show_antigravity {
         settings.show_codex = true;
     }
@@ -723,31 +723,84 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
             let data = s.data.as_ref()?;
             if s.show_claude_code {
                 if let Some(usage) = data.claude_code.as_ref() {
-                    let session = full_usage_line(&usage.session, s.language, strings, poller::UsageWindowKind::Session);
-                    let weekly = full_usage_line(&usage.weekly, s.language, strings, poller::UsageWindowKind::Weekly);
-                    services.push(service_tooltip(strings.claude_code_model, &session, &weekly, s.show_session_window, s.show_weekly_window));
+                    let session = full_usage_line(
+                        &usage.session,
+                        s.language,
+                        strings,
+                        poller::UsageWindowKind::Session,
+                    );
+                    let weekly = full_usage_line(
+                        &usage.weekly,
+                        s.language,
+                        strings,
+                        poller::UsageWindowKind::Weekly,
+                    );
+                    services.push(service_tooltip(
+                        strings.claude_code_model,
+                        &session,
+                        &weekly,
+                        s.show_session_window,
+                        s.show_weekly_window,
+                    ));
                 }
             }
             if s.show_codex {
                 if let Some(usage) = data.codex.as_ref() {
-                    let session = full_usage_line(&usage.session, s.language, strings, poller::UsageWindowKind::Session);
-                    let weekly = full_usage_line(&usage.weekly, s.language, strings, poller::UsageWindowKind::Weekly);
-                    services.push(service_tooltip(strings.codex_model, &session, &weekly, s.show_session_window, s.show_weekly_window));
+                    let session = full_usage_line(
+                        &usage.session,
+                        s.language,
+                        strings,
+                        poller::UsageWindowKind::Session,
+                    );
+                    let weekly = full_usage_line(
+                        &usage.weekly,
+                        s.language,
+                        strings,
+                        poller::UsageWindowKind::Weekly,
+                    );
+                    services.push(service_tooltip(
+                        strings.codex_model,
+                        &session,
+                        &weekly,
+                        s.show_session_window,
+                        s.show_weekly_window,
+                    ));
                 }
             }
             if s.show_antigravity {
                 if let Some(usage) = data.antigravity.as_ref() {
-                    let session = full_usage_line(&usage.session, s.language, strings, poller::UsageWindowKind::Session);
-                    let weekly = if usage.weekly.resets_at.is_none() && usage.weekly.percentage == 0.0 {
-                        "--".to_string()
-                    } else {
-                        full_usage_line(&usage.weekly, s.language, strings, poller::UsageWindowKind::Weekly)
-                    };
-                    services.push(service_tooltip(strings.antigravity_model, &session, &weekly, s.show_session_window, s.show_weekly_window));
+                    let session = full_usage_line(
+                        &usage.session,
+                        s.language,
+                        strings,
+                        poller::UsageWindowKind::Session,
+                    );
+                    let weekly =
+                        if usage.weekly.resets_at.is_none() && usage.weekly.percentage == 0.0 {
+                            "--".to_string()
+                        } else {
+                            full_usage_line(
+                                &usage.weekly,
+                                s.language,
+                                strings,
+                                poller::UsageWindowKind::Weekly,
+                            )
+                        };
+                    services.push(service_tooltip(
+                        strings.antigravity_model,
+                        &session,
+                        &weekly,
+                        s.show_session_window,
+                        s.show_weekly_window,
+                    ));
                 }
             }
             Some(tray_icon::TrayIconData {
-                tooltip: if services.is_empty() { strings.window_title.to_string() } else { services.join("\n") },
+                tooltip: if services.is_empty() {
+                    strings.window_title.to_string()
+                } else {
+                    services.join("\n")
+                },
             })
         }
         Some(s) => {
@@ -757,7 +810,9 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
                 (false, false, true) => strings.antigravity_window_title,
                 _ => strings.window_title,
             };
-            Some(tray_icon::TrayIconData { tooltip: tooltip.to_string() })
+            Some(tray_icon::TrayIconData {
+                tooltip: tooltip.to_string(),
+            })
         }
         None => None,
     }
@@ -766,28 +821,6 @@ fn tray_icon_data_from_state() -> Option<tray_icon::TrayIconData> {
 fn sync_tray_icons(hwnd: HWND) {
     let icon = tray_icon_data_from_state();
     tray_icon::sync(hwnd, icon.as_ref());
-}
-
-fn toggle_widget_visibility(hwnd: HWND) {
-    let new_visible = {
-        let mut state = lock_state();
-        if let Some(s) = state.as_mut() {
-            s.widget_visible = !s.widget_visible;
-            s.widget_visible
-        } else {
-            return;
-        }
-    };
-    save_state_settings();
-    unsafe {
-        if new_visible {
-            position_at_taskbar();
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            render_layered();
-        } else {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        }
-    }
 }
 
 fn attach_to_taskbar(hwnd: HWND, requested_index: usize) -> bool {
@@ -943,10 +976,16 @@ fn refresh_usage_texts(state: &mut AppState) {
 
     if let Some(claude_code) = data.claude_code.as_ref() {
         state.session_text = appearance::taskbar_line(
-            preset, language, &claude_code.session, poller::UsageWindowKind::Session,
+            preset,
+            language,
+            &claude_code.session,
+            poller::UsageWindowKind::Session,
         );
         state.weekly_text = appearance::taskbar_line(
-            preset, language, &claude_code.weekly, poller::UsageWindowKind::Weekly,
+            preset,
+            language,
+            &claude_code.weekly,
+            poller::UsageWindowKind::Weekly,
         );
     } else if state.show_claude_code {
         state.session_text = "!".to_string();
@@ -955,10 +994,16 @@ fn refresh_usage_texts(state: &mut AppState) {
 
     if let Some(codex) = data.codex.as_ref() {
         state.codex_session_text = appearance::taskbar_line(
-            preset, language, &codex.session, poller::UsageWindowKind::Session,
+            preset,
+            language,
+            &codex.session,
+            poller::UsageWindowKind::Session,
         );
         state.codex_weekly_text = appearance::taskbar_line(
-            preset, language, &codex.weekly, poller::UsageWindowKind::Weekly,
+            preset,
+            language,
+            &codex.weekly,
+            poller::UsageWindowKind::Weekly,
         );
     } else if state.show_codex {
         state.codex_session_text = "!".to_string();
@@ -967,14 +1012,20 @@ fn refresh_usage_texts(state: &mut AppState) {
 
     if let Some(antigravity) = data.antigravity.as_ref() {
         state.antigravity_session_text = appearance::taskbar_line(
-            preset, language, &antigravity.session, poller::UsageWindowKind::Session,
+            preset,
+            language,
+            &antigravity.session,
+            poller::UsageWindowKind::Session,
         );
         state.antigravity_weekly_text =
             if antigravity.weekly.resets_at.is_none() && antigravity.weekly.percentage == 0.0 {
                 "--".to_string()
             } else {
                 appearance::taskbar_line(
-                    preset, language, &antigravity.weekly, poller::UsageWindowKind::Weekly,
+                    preset,
+                    language,
+                    &antigravity.weekly,
+                    poller::UsageWindowKind::Weekly,
                 )
             };
     } else if state.show_antigravity {
@@ -1464,7 +1515,10 @@ fn widget_height_for_state(state: &AppState) -> i32 {
 }
 fn current_appearance_preset() -> AppearancePreset {
     let state = lock_state();
-    state.as_ref().map(|s| s.appearance_preset).unwrap_or_default()
+    state
+        .as_ref()
+        .map(|s| s.appearance_preset)
+        .unwrap_or_default()
 }
 
 fn row_bar_segment_count(active_models: i32, preset: AppearancePreset) -> i32 {
@@ -1523,7 +1577,11 @@ fn total_widget_width_for(active_models: i32, language: LanguageId) -> i32 {
 
 fn total_widget_width_for_state(state: &AppState) -> i32 {
     total_widget_width_for_preset(
-        active_model_count(state.show_claude_code, state.show_codex, state.show_antigravity),
+        active_model_count(
+            state.show_claude_code,
+            state.show_codex,
+            state.show_antigravity,
+        ),
         state.language,
         state.appearance_preset,
     )
@@ -1534,11 +1592,13 @@ fn total_widget_width() -> i32 {
         let state = lock_state();
         state
             .as_ref()
-            .map(|s| (
-                active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity),
-                s.language,
-                s.appearance_preset,
-            ))
+            .map(|s| {
+                (
+                    active_model_count(s.show_claude_code, s.show_codex, s.show_antigravity),
+                    s.language,
+                    s.appearance_preset,
+                )
+            })
             .unwrap_or((1, LanguageId::English, AppearancePreset::Compact))
     };
     total_widget_width_for_preset(active_models, language, preset)
@@ -1648,7 +1708,7 @@ pub fn run() {
             diagnose::log("RegisterClassExW returned 0");
         }
 
-        let claude_code_available = poller::claude_code_credentials_available();
+        let claude_code_available = false;
         let settings = load_settings(claude_code_available);
         let language_override = settings.language.as_deref().and_then(LanguageId::from_code);
         let language = localization::resolve_language(language_override);
@@ -1776,11 +1836,9 @@ pub fn run() {
         // Register system tray icon(s)
         sync_tray_icons(hwnd);
 
-        // Position and show (only if widget_visible preference is true)
+        // Position and show. While the process runs, the taskbar widget is always visible.
         position_at_taskbar();
-        if settings.widget_visible {
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        }
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         diagnose::log("window shown");
 
         // Initial render via UpdateLayeredWindow (for embedded) or InvalidateRect (fallback)
@@ -1809,18 +1867,6 @@ pub fn run() {
             diagnose::log("initial poll thread started");
             do_poll(send_hwnd);
         });
-
-        schedule_auto_update_check(hwnd);
-        let should_check_updates = {
-            let state = lock_state();
-            state
-                .as_ref()
-                .map(|s| auto_update_check_due(s.last_update_check_unix))
-                .unwrap_or(false)
-        };
-        if should_check_updates {
-            begin_update_check(hwnd, false);
-        }
 
         // Initial theme check
         check_theme_change();
@@ -2086,12 +2132,28 @@ fn paint_content(
         let (label_width, text_width) = usage_layout_widths(language, preset);
         let (small_taskbar_mode, small_show_weekly) = {
             let state = lock_state();
-            state.as_ref().map(|s| (s.small_taskbar_mode, s.small_show_weekly)).unwrap_or((false, false))
+            state
+                .as_ref()
+                .map(|s| (s.small_taskbar_mode, s.small_show_weekly))
+                .unwrap_or((false, false))
         };
-        let effective_show_session = if small_taskbar_mode { !small_show_weekly } else { show_session_window };
-        let effective_show_weekly = if small_taskbar_mode { small_show_weekly } else { show_weekly_window };
+        let effective_show_session = if small_taskbar_mode {
+            !small_show_weekly
+        } else {
+            show_session_window
+        };
+        let effective_show_weekly = if small_taskbar_mode {
+            small_show_weekly
+        } else {
+            show_weekly_window
+        };
 
-        let client_rect = RECT { left: 0, top: 0, right: width, bottom: height };
+        let client_rect = RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        };
         let bg_brush = CreateSolidBrush(COLORREF(bg.to_colorref()));
         FillRect(hdc, &client_rect, bg_brush);
         let _ = DeleteObject(bg_brush);
@@ -2107,14 +2169,83 @@ fn paint_content(
         let _ = SetBkMode(hdc, TRANSPARENT);
         let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
         let font_name = native_interop::wide_str("Segoe UI");
-        let font = CreateFontW(sc(metrics.font_height), 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_TT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32, PCWSTR::from_raw(font_name.as_ptr()));
+        let font = CreateFontW(
+            sc(metrics.font_height),
+            0,
+            0,
+            0,
+            FW_MEDIUM.0 as i32,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET.0 as u32,
+            OUT_TT_PRECIS.0 as u32,
+            CLIP_DEFAULT_PRECIS.0 as u32,
+            CLEARTYPE_QUALITY.0 as u32,
+            (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
+            PCWSTR::from_raw(font_name.as_ptr()),
+        );
         let old_font = SelectObject(hdc, font);
 
         if effective_show_session {
-            draw_row(hdc, content_x, if effective_show_weekly { row1_y } else { single_row_y }, is_dark, language, text_color, strings.session_window, session_pct, session_text, codex_session_pct, codex_session_text, antigravity_session_pct, antigravity_session_text, show_claude_code, show_codex, show_antigravity, accent, codex_accent, antigravity_accent, track, label_width, text_width);
+            draw_row(
+                hdc,
+                content_x,
+                if effective_show_weekly {
+                    row1_y
+                } else {
+                    single_row_y
+                },
+                is_dark,
+                language,
+                text_color,
+                strings.session_window,
+                session_pct,
+                session_text,
+                codex_session_pct,
+                codex_session_text,
+                antigravity_session_pct,
+                antigravity_session_text,
+                show_claude_code,
+                show_codex,
+                show_antigravity,
+                accent,
+                codex_accent,
+                antigravity_accent,
+                track,
+                label_width,
+                text_width,
+            );
         }
         if effective_show_weekly {
-            draw_row(hdc, content_x, if effective_show_session { row2_y } else { single_row_y }, is_dark, language, text_color, strings.weekly_window, weekly_pct, weekly_text, codex_weekly_pct, codex_weekly_text, antigravity_weekly_pct, antigravity_weekly_text, show_claude_code, show_codex, show_antigravity, accent, codex_accent, antigravity_accent, track, label_width, text_width);
+            draw_row(
+                hdc,
+                content_x,
+                if effective_show_session {
+                    row2_y
+                } else {
+                    single_row_y
+                },
+                is_dark,
+                language,
+                text_color,
+                strings.weekly_window,
+                weekly_pct,
+                weekly_text,
+                codex_weekly_pct,
+                codex_weekly_text,
+                antigravity_weekly_pct,
+                antigravity_weekly_text,
+                show_claude_code,
+                show_codex,
+                show_antigravity,
+                accent,
+                codex_accent,
+                antigravity_accent,
+                track,
+                label_width,
+                text_width,
+            );
         }
 
         SelectObject(hdc, old_font);
@@ -2160,58 +2291,28 @@ fn poll_error_display_label(error: poller::PollError, language: LanguageId) -> &
 
 fn do_poll(send_hwnd: SendHwnd) {
     let hwnd = send_hwnd.to_hwnd();
-    let (show_claude_code, show_codex, show_antigravity) = {
-        let state = lock_state();
-        state
-            .as_ref()
-            .map(|s| (s.show_claude_code, s.show_codex, s.show_antigravity))
-            .unwrap_or((true, false, false))
-    };
-
-    match poller::poll(show_claude_code, show_codex, show_antigravity) {
+    match poller::poll() {
         Ok(data) => {
             let mut state = lock_state();
             let mut quota_alerts = Vec::new();
             if let Some(s) = state.as_mut() {
-                if let Some(claude_code) = data.claude_code.as_ref() {
-                    s.session_percent = claude_code.session.percentage;
-                    s.weekly_percent = claude_code.weekly.percentage;
-                } else if s.show_claude_code {
-                    s.session_percent = 0.0;
-                    s.weekly_percent = 0.0;
-                }
                 if let Some(codex) = data.codex.as_ref() {
                     s.codex_session_percent = codex.session.percentage;
                     s.codex_weekly_percent = codex.weekly.percentage;
-                } else if s.show_codex {
-                    s.codex_session_percent = 0.0;
-                    s.codex_weekly_percent = 0.0;
                 }
-                if let Some(antigravity) = data.antigravity.as_ref() {
-                    s.antigravity_session_percent = antigravity.session.percentage;
-                    s.antigravity_weekly_percent = antigravity.weekly.percentage;
-                } else if s.show_antigravity {
-                    s.antigravity_session_percent = 0.0;
-                    s.antigravity_weekly_percent = 0.0;
-                }
-                // Stop fast-poll if reset data is now fresh
                 if !poller::app_is_past_reset(&data) {
                     unsafe {
                         let _ = KillTimer(hwnd, TIMER_RESET_POLL);
                     }
                 }
-
                 quota_alerts = collect_low_quota_alerts(s, &data);
                 s.data = Some(data);
                 s.last_poll_ok = true;
                 refresh_usage_texts(s);
-
-                // Recovered from errors — restore normal poll interval
                 if s.retry_count > 0 {
                     s.retry_count = 0;
-                    let interval = s.poll_interval_ms;
                     unsafe {
-                        SetTimer(hwnd, TIMER_POLL, interval, None);
+                        SetTimer(hwnd, TIMER_POLL, s.poll_interval_ms, None);
                     }
                 }
                 s.force_notify_auth_error = false;
@@ -2220,32 +2321,18 @@ fn do_poll(send_hwnd: SendHwnd) {
                 s.auth_watch_snapshot.clear();
             }
             drop(state);
-
             for alert in &quota_alerts {
                 tray_icon::notify_balloon(hwnd, alert.kind, &alert.title, &alert.message);
-                diagnose::log(format!(
-                    "low quota alert emitted title={} message={}",
-                    alert.title, alert.message
-                ));
             }
             if !quota_alerts.is_empty() {
                 save_state_settings();
             }
-
             unsafe {
                 let _ = PostMessageW(hwnd, WM_APP_USAGE_UPDATED, WPARAM(0), LPARAM(0));
             }
         }
         Err(e) => {
             let auth_watch = match e {
-                poller::PollError::AuthRequired | poller::PollError::TokenExpired
-                    if show_antigravity && !show_claude_code && !show_codex =>
-                {
-                    Some((
-                        poller::CredentialWatchMode::Antigravity,
-                        poller::credential_watch_snapshot(poller::CredentialWatchMode::Antigravity),
-                    ))
-                }
                 poller::PollError::AuthRequired | poller::PollError::TokenExpired => Some((
                     poller::CredentialWatchMode::ActiveSource,
                     poller::credential_watch_snapshot(poller::CredentialWatchMode::ActiveSource),
@@ -2254,107 +2341,59 @@ fn do_poll(send_hwnd: SendHwnd) {
                     poller::CredentialWatchMode::AllSources,
                     poller::credential_watch_snapshot(poller::CredentialWatchMode::AllSources),
                 )),
-                poller::PollError::NetworkUnavailable
-                | poller::PollError::RateLimited
-                | poller::PollError::ServerError
-                | poller::PollError::RequestFailed => None,
+                _ => None,
             };
-            // Distinguish auth-required errors from transient errors.
             let notify_auth_error = {
                 let mut state = lock_state();
-                let mut should_notify = false;
+                let mut notify = false;
                 if let Some(s) = state.as_mut() {
                     s.last_poll_ok = false;
-                    match auth_watch {
-                        Some((watch_mode, watch_snapshot)) => {
-                            // Only show the balloon on the first failure so it doesn't spam.
-                            if s.retry_count == 0 || s.force_notify_auth_error {
-                                should_notify = true;
-                            }
-                            s.force_notify_auth_error = false;
-                            s.auth_error_paused_polling = true;
-                            s.auth_watch_mode = watch_mode;
-                            s.auth_watch_snapshot = watch_snapshot;
-                            s.session_text = "!".to_string();
-                            s.weekly_text = "!".to_string();
-                            s.codex_session_text = "!".to_string();
-                            s.codex_weekly_text = "!".to_string();
-                            s.antigravity_session_text = "!".to_string();
-                            s.antigravity_weekly_text = "!".to_string();
-                            s.retry_count = s.retry_count.saturating_add(1);
-                            unsafe {
-                                let _ = KillTimer(hwnd, TIMER_POLL);
-                                let _ = KillTimer(hwnd, TIMER_RESET_POLL);
-                                let _ = KillTimer(hwnd, TIMER_COUNTDOWN);
-                                SetTimer(hwnd, TIMER_POLL, s.poll_interval_ms, None);
-                            }
+                    if let Some((mode, snapshot)) = auth_watch {
+                        notify = s.retry_count == 0 || s.force_notify_auth_error;
+                        s.force_notify_auth_error = false;
+                        s.auth_error_paused_polling = true;
+                        s.auth_watch_mode = mode;
+                        s.auth_watch_snapshot = snapshot;
+                        s.codex_session_text = "!".to_string();
+                        s.codex_weekly_text = "!".to_string();
+                        s.retry_count = s.retry_count.saturating_add(1);
+                        unsafe {
+                            let _ = KillTimer(hwnd, TIMER_POLL);
+                            let _ = KillTimer(hwnd, TIMER_RESET_POLL);
+                            let _ = KillTimer(hwnd, TIMER_COUNTDOWN);
+                            SetTimer(hwnd, TIMER_POLL, s.poll_interval_ms, None);
                         }
-                        _ => {
-                            // Transient network, rate-limit, server, or response errors: exponential backoff.
-                            s.force_notify_auth_error = false;
-                            s.auth_error_paused_polling = false;
-                            s.auth_watch_mode = poller::CredentialWatchMode::ActiveSource;
-                            s.auth_watch_snapshot.clear();
-                            let label = poll_error_display_label(e, s.language).to_string();
-                            s.session_text = label.clone();
-                            s.weekly_text = label.clone();
-                            s.codex_session_text = label.clone();
-                            s.codex_weekly_text = label.clone();
-                            s.antigravity_session_text = label.clone();
-                            s.antigravity_weekly_text = label;
-                            s.retry_count = s.retry_count.saturating_add(1);
-                            let backoff = RETRY_BASE_MS.saturating_mul(
-                                1u32.checked_shl(s.retry_count - 1).unwrap_or(u32::MAX),
-                            );
-                            let retry_ms = backoff.min(s.poll_interval_ms);
-                            diagnose::log(format!(
-                                "usage poll failed category={} retry={} retry_ms={retry_ms}",
-                                e.category(),
-                                s.retry_count
-                            ));
-                            unsafe {
-                                let _ = KillTimer(hwnd, TIMER_RESET_POLL);
-                                SetTimer(hwnd, TIMER_POLL, retry_ms, None);
-                            }
+                    } else {
+                        s.force_notify_auth_error = false;
+                        s.auth_error_paused_polling = false;
+                        s.auth_watch_mode = poller::CredentialWatchMode::ActiveSource;
+                        s.auth_watch_snapshot.clear();
+                        let label = poll_error_display_label(e, s.language).to_string();
+                        s.codex_session_text = label.clone();
+                        s.codex_weekly_text = label;
+                        s.retry_count = s.retry_count.saturating_add(1);
+                        let backoff = RETRY_BASE_MS.saturating_mul(
+                            1u32.checked_shl(s.retry_count - 1).unwrap_or(u32::MAX),
+                        );
+                        unsafe {
+                            let _ = KillTimer(hwnd, TIMER_RESET_POLL);
+                            SetTimer(hwnd, TIMER_POLL, backoff.min(s.poll_interval_ms), None);
                         }
                     }
                 }
-                should_notify
+                notify
             };
-
             if notify_auth_error {
-                let balloon = {
-                    let state = lock_state();
-                    state.as_ref().map(|s| {
-                        if s.show_claude_code {
-                            (
-                                s.language.strings(),
-                                tray_icon::TrayIconKind::Claude,
-                                s.language.strings().token_expired_title,
-                                s.language.strings().token_expired_body,
-                            )
-                        } else if s.show_codex {
-                            (
-                                s.language.strings(),
-                                tray_icon::TrayIconKind::Codex,
-                                s.language.strings().codex_token_expired_title,
-                                s.language.strings().codex_token_expired_body,
-                            )
-                        } else {
-                            (
-                                s.language.strings(),
-                                tray_icon::TrayIconKind::Antigravity,
-                                s.language.strings().antigravity_token_expired_title,
-                                s.language.strings().antigravity_token_expired_body,
-                            )
-                        }
-                    })
-                };
-                if let Some((_strings, kind, title, body)) = balloon {
-                    tray_icon::notify_balloon(hwnd, kind, title, body);
+                let state = lock_state();
+                if let Some(s) = state.as_ref() {
+                    tray_icon::notify_balloon(
+                        hwnd,
+                        tray_icon::TrayIconKind::Codex,
+                        s.language.strings().codex_token_expired_title,
+                        s.language.strings().codex_token_expired_body,
+                    );
                 }
             }
-
             unsafe {
                 let _ = PostMessageW(hwnd, WM_APP_USAGE_UPDATED, WPARAM(0), LPARAM(0));
             }
@@ -2391,22 +2430,10 @@ fn schedule_countdown_timer() {
     }
 
     let delays = [
-        data.claude_code
-            .as_ref()
-            .and_then(|usage| poller::time_until_display_change(usage.session.resets_at)),
-        data.claude_code
-            .as_ref()
-            .and_then(|usage| poller::time_until_display_change(usage.weekly.resets_at)),
         data.codex
             .as_ref()
             .and_then(|usage| poller::time_until_display_change(usage.session.resets_at)),
         data.codex
-            .as_ref()
-            .and_then(|usage| poller::time_until_display_change(usage.weekly.resets_at)),
-        data.antigravity
-            .as_ref()
-            .and_then(|usage| poller::time_until_display_change(usage.session.resets_at)),
-        data.antigravity
             .as_ref()
             .and_then(|usage| poller::time_until_display_change(usage.weekly.resets_at)),
     ];
@@ -2490,18 +2517,29 @@ fn position_at_taskbar() {
     refresh_dpi();
     let (hwnd, embedded, tray_offset, taskbar_hwnd) = {
         let state = lock_state();
-        let s = match state.as_ref() { Some(s) => s, None => return };
-        if s.dragging { return; }
+        let s = match state.as_ref() {
+            Some(s) => s,
+            None => return,
+        };
+        if s.dragging {
+            return;
+        }
         let taskbar_hwnd = match s.taskbar_hwnd {
             Some(h) => h,
-            None => { diagnose::log("position_at_taskbar skipped: no taskbar handle"); return; }
+            None => {
+                diagnose::log("position_at_taskbar skipped: no taskbar handle");
+                return;
+            }
         };
         (s.hwnd.to_hwnd(), s.embedded, s.tray_offset, taskbar_hwnd)
     };
 
     let taskbar_rect = match native_interop::get_taskbar_rect(taskbar_hwnd) {
         Some(r) => r,
-        None => { diagnose::log("position_at_taskbar skipped: unable to query taskbar rect"); return; }
+        None => {
+            diagnose::log("position_at_taskbar skipped: unable to query taskbar rect");
+            return;
+        }
     };
     let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
     let small_mode = is_small_taskbar_height(taskbar_height);
@@ -2510,7 +2548,9 @@ fn position_at_taskbar() {
         if let Some(s) = state.as_mut() {
             if s.small_taskbar_mode != small_mode {
                 s.small_taskbar_mode = small_mode;
-                if small_mode { s.small_show_weekly = false; }
+                if small_mode {
+                    s.small_show_weekly = false;
+                }
             }
         }
     }
@@ -2519,7 +2559,9 @@ fn position_at_taskbar() {
     let anchor_top = taskbar_rect.top;
     let anchor_height = taskbar_height;
     if let Some(tray_hwnd) = native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd") {
-        if let Some(tray_rect) = native_interop::get_window_rect_safe(tray_hwnd) { tray_left = tray_rect.left; }
+        if let Some(tray_rect) = native_interop::get_window_rect_safe(tray_hwnd) {
+            tray_left = tray_rect.left;
+        }
     }
 
     let widget_width = total_widget_width();
@@ -2528,24 +2570,41 @@ fn position_at_taskbar() {
     let offset_changed = {
         let mut state = lock_state();
         if let Some(s) = state.as_mut() {
-            if s.tray_offset != tray_offset { s.tray_offset = tray_offset; true } else { false }
-        } else { false }
+            if s.tray_offset != tray_offset {
+                s.tray_offset = tray_offset;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     };
-    if offset_changed { save_state_settings(); }
+    if offset_changed {
+        save_state_settings();
+    }
 
     let widget_height = {
         let state = lock_state();
-        state.as_ref().map(widget_height_for_state).unwrap_or(sc(AppearancePreset::Compact.metrics().widget_height))
+        state
+            .as_ref()
+            .map(widget_height_for_state)
+            .unwrap_or(sc(AppearancePreset::Compact.metrics().widget_height))
     };
     let y = compute_anchor_y(anchor_top, anchor_height, widget_height);
     if embedded {
         let x = tray_left - taskbar_rect.left - widget_width - tray_offset;
         native_interop::move_window(hwnd, x, y - taskbar_rect.top, widget_width, widget_height);
-        diagnose::log(format!("positioned embedded widget at x={x} y={} w={widget_width} h={widget_height}", y - taskbar_rect.top));
+        diagnose::log(format!(
+            "positioned embedded widget at x={x} y={} w={widget_width} h={widget_height}",
+            y - taskbar_rect.top
+        ));
     } else {
         let x = tray_left - widget_width - tray_offset;
         native_interop::move_window(hwnd, x, y, widget_width, widget_height);
-        diagnose::log(format!("positioned fallback widget at x={x} y={y} w={widget_width} h={widget_height}"));
+        diagnose::log(format!(
+            "positioned fallback widget at x={x} y={y} w={widget_width} h={widget_height}"
+        ));
     }
 }
 
@@ -2703,9 +2762,6 @@ unsafe extern "system" fn wnd_proc(
                         });
                     }
                 }
-                TIMER_UPDATE_CHECK => {
-                    begin_update_check(hwnd, false);
-                }
                 _ => {}
             }
             LRESULT(0)
@@ -2719,10 +2775,6 @@ unsafe extern "system" fn wnd_proc(
                 TRAY_ICON_UPDATE_REPOSITION_SUPPRESS_MS,
             ));
             sync_tray_icons(hwnd);
-            LRESULT(0)
-        }
-        WM_APP_UPDATE_CHECK_COMPLETE => {
-            schedule_auto_update_check(hwnd);
             LRESULT(0)
         }
         WM_SETCURSOR => {
@@ -2907,7 +2959,9 @@ unsafe extern "system" fn wnd_proc(
                             false
                         }
                     };
-                    if toggled { render_layered(); }
+                    if toggled {
+                        render_layered();
+                    }
                 }
             }
             if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
@@ -2959,38 +3013,6 @@ unsafe extern "system" fn wnd_proc(
                     std::thread::spawn(move || {
                         do_poll(sh);
                     });
-                }
-                IDM_VERSION_ACTION => {
-                    let (install_channel, release) = {
-                        let state = lock_state();
-                        match state.as_ref() {
-                            Some(s) => (
-                                s.install_channel,
-                                match &s.update_status {
-                                    UpdateStatus::Available(release) => Some(release.clone()),
-                                    _ => None,
-                                },
-                            ),
-                            None => (InstallChannel::Portable, None),
-                        }
-                    };
-
-                    match install_channel {
-                        InstallChannel::Winget => {
-                            if release.is_some() {
-                                begin_winget_update(hwnd);
-                            } else {
-                                begin_update_check(hwnd, true);
-                            }
-                        }
-                        InstallChannel::Portable => {
-                            if let Some(release) = release {
-                                begin_update_apply(hwnd, release);
-                            } else {
-                                begin_update_check(hwnd, true);
-                            }
-                        }
-                    }
                 }
                 2 => {
                     let hook = {
@@ -3084,49 +3106,6 @@ unsafe extern "system" fn wnd_proc(
                     }
                     save_state_settings();
                 }
-                IDM_MODEL_CLAUDE_CODE | IDM_MODEL_CODEX | IDM_MODEL_ANTIGRAVITY => {
-                    {
-                        let mut state = lock_state();
-                        if let Some(s) = state.as_mut() {
-                            match id {
-                                IDM_MODEL_CLAUDE_CODE => {
-                                    if s.claude_code_available
-                                        && (s.show_codex
-                                            || s.show_antigravity
-                                            || !s.show_claude_code)
-                                    {
-                                        s.show_claude_code = !s.show_claude_code;
-                                    }
-                                }
-                                IDM_MODEL_CODEX => {
-                                    if s.show_claude_code || s.show_antigravity || !s.show_codex {
-                                        s.show_codex = !s.show_codex;
-                                    }
-                                }
-                                IDM_MODEL_ANTIGRAVITY => {
-                                    if s.show_claude_code || s.show_codex || !s.show_antigravity {
-                                        s.show_antigravity = !s.show_antigravity;
-                                    }
-                                }
-                                _ => {}
-                            }
-                            s.session_text = "...".to_string();
-                            s.weekly_text = "...".to_string();
-                            s.codex_session_text = "...".to_string();
-                            s.codex_weekly_text = "...".to_string();
-                            s.antigravity_session_text = "...".to_string();
-                            s.antigravity_weekly_text = "...".to_string();
-                        }
-                    }
-                    save_state_settings();
-                    position_at_taskbar();
-                    render_layered();
-                    sync_tray_icons(hwnd);
-                    let sh = SendHwnd::from_hwnd(hwnd);
-                    std::thread::spawn(move || {
-                        do_poll(sh);
-                    });
-                }
                 IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
                     let preset = if id == IDM_APPEARANCE_MINIMAL {
                         AppearancePreset::Minimal
@@ -3181,18 +3160,12 @@ unsafe extern "system" fn wnd_proc(
                     save_state_settings();
                     render_layered();
                 }
-                id if id == tray_icon::IDM_TOGGLE_WIDGET => {
-                    toggle_widget_visibility(hwnd);
-                }
                 _ => {}
             }
             LRESULT(0)
         }
         _ if msg == WM_APP_TRAY => {
             match tray_icon::handle_message(lparam) {
-                tray_icon::TrayAction::ToggleWidget => {
-                    toggle_widget_visibility(hwnd);
-                }
                 tray_icon::TrayAction::ShowContextMenu => {
                     show_context_menu(hwnd);
                 }
@@ -3313,58 +3286,6 @@ fn show_context_menu(hwnd: HWND) {
             MF_POPUP,
             freq_menu.0 as usize,
             PCWSTR::from_raw(freq_label.as_ptr()),
-        );
-
-        // Models submenu
-        let models_menu = CreatePopupMenu().unwrap();
-        let claude_label = claude_code_menu_label(strings, language, claude_code_available);
-        let claude_model = native_interop::wide_str(&claude_label);
-        let claude_flags = if !claude_code_available {
-            MF_GRAYED
-        } else if show_claude_code {
-            MF_CHECKED
-        } else {
-            MENU_ITEM_FLAGS(0)
-        };
-        let _ = AppendMenuW(
-            models_menu,
-            claude_flags,
-            IDM_MODEL_CLAUDE_CODE as usize,
-            PCWSTR::from_raw(claude_model.as_ptr()),
-        );
-
-        let codex_model = native_interop::wide_str(strings.codex_model);
-        let codex_flags = if show_codex {
-            MF_CHECKED
-        } else {
-            MENU_ITEM_FLAGS(0)
-        };
-        let _ = AppendMenuW(
-            models_menu,
-            codex_flags,
-            IDM_MODEL_CODEX as usize,
-            PCWSTR::from_raw(codex_model.as_ptr()),
-        );
-
-        let antigravity_model = native_interop::wide_str(strings.antigravity_model);
-        let antigravity_flags = if show_antigravity {
-            MF_CHECKED
-        } else {
-            MENU_ITEM_FLAGS(0)
-        };
-        let _ = AppendMenuW(
-            models_menu,
-            antigravity_flags,
-            IDM_MODEL_ANTIGRAVITY as usize,
-            PCWSTR::from_raw(antigravity_model.as_ptr()),
-        );
-
-        let models_label = native_interop::wide_str(strings.models);
-        let _ = AppendMenuW(
-            menu,
-            MF_POPUP,
-            models_menu.0 as usize,
-            PCWSTR::from_raw(models_label.as_ptr()),
         );
 
         // Usage window visibility submenu. Keep at least one window enabled.
@@ -3500,9 +3421,12 @@ fn show_context_menu(hwnd: HWND) {
                 PCWSTR::from_raw(label.as_ptr()),
             );
         }
-        let appearance_label = native_interop::wide_str(
-            if language == LanguageId::SimplifiedChinese { "外观" } else { "Appearance" }
-        );
+        let appearance_label =
+            native_interop::wide_str(if language == LanguageId::SimplifiedChinese {
+                "外观"
+            } else {
+                "Appearance"
+            });
         let _ = AppendMenuW(
             menu,
             MF_POPUP,
@@ -3583,25 +3507,13 @@ fn show_context_menu(hwnd: HWND) {
             language_menu.0 as usize,
             PCWSTR::from_raw(language_label.as_ptr()),
         );
-
         let _ = AppendMenuW(settings_menu, MF_SEPARATOR, 0, PCWSTR::null());
-
-        let version_label =
-            version_action_label(strings, language, install_channel, &update_status);
-        let version_str = native_interop::wide_str(&version_label);
-        let version_flags = if matches!(
-            update_status,
-            UpdateStatus::Checking | UpdateStatus::Applying
-        ) {
-            MF_GRAYED
-        } else {
-            MENU_ITEM_FLAGS(0)
-        };
+        let version_label = native_interop::wide_str(&format!("v{}", env!("CARGO_PKG_VERSION")));
         let _ = AppendMenuW(
             settings_menu,
-            version_flags,
-            IDM_VERSION_ACTION as usize,
-            PCWSTR::from_raw(version_str.as_ptr()),
+            MF_GRAYED,
+            0,
+            PCWSTR::from_raw(version_label.as_ptr()),
         );
 
         let settings_label = native_interop::wide_str(strings.settings);
@@ -3610,19 +3522,6 @@ fn show_context_menu(hwnd: HWND) {
             MF_POPUP,
             settings_menu.0 as usize,
             PCWSTR::from_raw(settings_label.as_ptr()),
-        );
-
-        let widget_label = native_interop::wide_str(strings.show_widget);
-        let widget_flags = if widget_visible {
-            MF_CHECKED
-        } else {
-            MENU_ITEM_FLAGS(0)
-        };
-        let _ = AppendMenuW(
-            menu,
-            widget_flags,
-            tray_icon::IDM_TOGGLE_WIDGET as usize,
-            PCWSTR::from_raw(widget_label.as_ptr()),
         );
 
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
@@ -3808,22 +3707,62 @@ fn draw_row(
             right: x + sc(label_width),
             bottom: y + seg_h,
         };
-        let _ = DrawTextW(hdc, &mut label_wide, &mut label_rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        let _ = DrawTextW(
+            hdc,
+            &mut label_wide,
+            &mut label_rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+        );
 
         let mut model_x = x + sc(label_width) + sc(metrics.label_bar_gap);
         if show_claude_code {
             let bar_color = quota_bar_color(is_dark, claude_percent, language);
-            draw_usage_bar(hdc, model_x, y, segment_count, claude_percent, claude_text, &bar_color, track, &percentage_text_color, text_width);
-            model_x += model_usage_width(segment_count, text_width, preset) + sc(metrics.model_right_margin);
+            draw_usage_bar(
+                hdc,
+                model_x,
+                y,
+                segment_count,
+                claude_percent,
+                claude_text,
+                &bar_color,
+                track,
+                &percentage_text_color,
+                text_width,
+            );
+            model_x += model_usage_width(segment_count, text_width, preset)
+                + sc(metrics.model_right_margin);
         }
         if show_codex {
             let bar_color = quota_bar_color(is_dark, codex_percent, language);
-            draw_usage_bar(hdc, model_x, y, segment_count, codex_percent, codex_text, &bar_color, track, &percentage_text_color, text_width);
-            model_x += model_usage_width(segment_count, text_width, preset) + sc(metrics.model_right_margin);
+            draw_usage_bar(
+                hdc,
+                model_x,
+                y,
+                segment_count,
+                codex_percent,
+                codex_text,
+                &bar_color,
+                track,
+                &percentage_text_color,
+                text_width,
+            );
+            model_x += model_usage_width(segment_count, text_width, preset)
+                + sc(metrics.model_right_margin);
         }
         if show_antigravity {
             let bar_color = quota_bar_color(is_dark, antigravity_percent, language);
-            draw_usage_bar(hdc, model_x, y, segment_count, antigravity_percent, antigravity_text, &bar_color, track, &percentage_text_color, text_width);
+            draw_usage_bar(
+                hdc,
+                model_x,
+                y,
+                segment_count,
+                antigravity_percent,
+                antigravity_text,
+                &bar_color,
+                track,
+                &percentage_text_color,
+                text_width,
+            );
         }
     }
 }
@@ -3863,14 +3802,24 @@ fn draw_usage_bar(
 
     unsafe {
         let percent_clamped = percent.clamp(0.0, 100.0);
-        let bar_rect = RECT { left: bar_x, top: bar_y, right: bar_x + progress_width, bottom: bar_y + bar_h };
+        let bar_rect = RECT {
+            left: bar_x,
+            top: bar_y,
+            right: bar_x + progress_width,
+            bottom: bar_y + bar_h,
+        };
         let track_brush = CreateSolidBrush(COLORREF(track.to_colorref()));
         FillRect(hdc, &bar_rect, track_brush);
         let _ = DeleteObject(track_brush);
 
         let fill_width = (progress_width as f64 * percent_clamped / 100.0).round() as i32;
         if fill_width > 0 {
-            let fill_rect = RECT { left: bar_x, top: bar_y, right: bar_x + fill_width, bottom: bar_y + bar_h };
+            let fill_rect = RECT {
+                left: bar_x,
+                top: bar_y,
+                right: bar_x + fill_width,
+                bottom: bar_y + bar_h,
+            };
             let fill_brush = CreateSolidBrush(COLORREF(accent.to_colorref()));
             FillRect(hdc, &fill_rect, fill_brush);
             let _ = DeleteObject(fill_brush);
@@ -3901,9 +3850,13 @@ fn draw_usage_value_text(
         let font_name = native_interop::wide_str("Segoe UI");
         let primary_font = CreateFontW(
             sc(metrics.value_font_height),
-            0, 0, 0,
+            0,
+            0,
+            0,
             FW_SEMIBOLD.0 as i32,
-            0, 0, 0,
+            0,
+            0,
+            0,
             DEFAULT_CHARSET.0 as u32,
             OUT_TT_PRECIS.0 as u32,
             CLIP_DEFAULT_PRECIS.0 as u32,
@@ -3930,9 +3883,13 @@ fn draw_usage_value_text(
         if let Some(secondary) = secondary {
             let secondary_font = CreateFontW(
                 sc(metrics.secondary_font_height),
-                0, 0, 0,
+                0,
+                0,
+                0,
                 FW_NORMAL.0 as i32,
-                0, 0, 0,
+                0,
+                0,
+                0,
                 DEFAULT_CHARSET.0 as u32,
                 OUT_TT_PRECIS.0 as u32,
                 CLIP_DEFAULT_PRECIS.0 as u32,
@@ -4329,10 +4286,3 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
-
-
-
-
-
-
-

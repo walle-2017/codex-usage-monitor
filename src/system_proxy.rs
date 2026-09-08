@@ -16,7 +16,9 @@ const INTERNET_SETTINGS_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\
 /// intentionally out of scope; only ProxyEnable + ProxyServer are used.
 pub fn apply_windows_system_proxy_env() {
     if proxy_env_configured() {
-        diagnose::log("explicit proxy environment configured; Windows system proxy fallback skipped");
+        diagnose::log(
+            "explicit proxy environment configured; Windows system proxy fallback skipped",
+        );
         return;
     }
 
@@ -117,7 +119,10 @@ fn read_registry_string(value_name: &str) -> Option<String> {
         return None;
     }
 
-    let end = buffer.iter().position(|ch| *ch == 0).unwrap_or(buffer.len());
+    let end = buffer
+        .iter()
+        .position(|ch| *ch == 0)
+        .unwrap_or(buffer.len());
     Some(String::from_utf16_lossy(&buffer[..end]))
 }
 
@@ -137,7 +142,11 @@ fn parse_proxy_server(value: &str) -> Option<String> {
 
     let mut http = None;
     let mut https = None;
-    for entry in value.split(';').map(str::trim).filter(|entry| !entry.is_empty()) {
+    for entry in value
+        .split(';')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+    {
         let Some((scheme, address)) = entry.split_once('=') else {
             continue;
         };
@@ -207,9 +216,21 @@ mod tests {
 
     #[test]
     fn explicit_proxy_environment_takes_precedence() {
-        assert!(proxy_env_configured_values(None, Some("http://127.0.0.1:7890"), None));
-        assert!(proxy_env_configured_values(Some("http://127.0.0.1:7890"), None, None));
-        assert!(proxy_env_configured_values(None, None, Some("socks5://127.0.0.1:1080")));
+        assert!(proxy_env_configured_values(
+            None,
+            Some("http://127.0.0.1:7890"),
+            None
+        ));
+        assert!(proxy_env_configured_values(
+            Some("http://127.0.0.1:7890"),
+            None,
+            None
+        ));
+        assert!(proxy_env_configured_values(
+            None,
+            None,
+            Some("socks5://127.0.0.1:1080")
+        ));
         assert!(!proxy_env_configured_values(None, None, None));
         assert!(!proxy_env_configured_values(Some(""), Some("  "), None));
     }

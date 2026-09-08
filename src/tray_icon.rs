@@ -19,7 +19,6 @@ pub const IDM_TOGGLE_WIDGET: u16 = 70;
 /// Actions the tray message handler can request from the main window.
 pub enum TrayAction {
     None,
-    ToggleWidget,
     ShowContextMenu,
 }
 
@@ -167,7 +166,7 @@ pub fn remove_all(hwnd: HWND) {
 pub fn handle_message(lparam: LPARAM) -> TrayAction {
     let mouse_msg = lparam.0 as u32;
     match mouse_msg {
-        WM_LBUTTONUP => TrayAction::ToggleWidget,
+        WM_LBUTTONUP => TrayAction::None,
         WM_RBUTTONUP => TrayAction::ShowContextMenu,
         _ => TrayAction::None,
     }
