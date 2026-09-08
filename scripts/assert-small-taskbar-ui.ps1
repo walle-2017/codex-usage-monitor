@@ -3,8 +3,8 @@ $ErrorActionPreference = 'Stop'
 $window = Get-Content -Raw (Join-Path $PSScriptRoot '..\src\window.rs')
 $windowProduction = ($window -split '#\[cfg\(test\)\]', 2)[0]
 
-if ($windowProduction -notmatch 'const\s+DRAG_HANDLE_VISUAL_INSET_X:\s*i32\s*=\s*4') {
-    throw 'Dotted drag handle must be inset from the left edge by 4 logical pixels.'
+if ($windowProduction -notmatch 'const\s+DRAG_HANDLE_VISUAL_INSET_X:\s*i32\s*=\s*7') {
+    throw 'Dotted drag handle must be inset from the left edge by 7 logical pixels.'
 }
 if ($windowProduction -notmatch 'const\s+SMALL_TASKBAR_THRESHOLD:\s*i32\s*=\s*34') {
     throw 'Small-taskbar mode must use the defined 34px logical threshold.'
