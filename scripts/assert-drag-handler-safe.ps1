@@ -26,6 +26,10 @@ if ($hitTestMatch.Groups['body'].Value -match 'current_appearance_preset\s*\(') 
     throw 'is_drag_handle_point() must not re-lock STATE through current_appearance_preset().'
 }
 
+if ($source -match 'map\(widget_height_for_state\)\s*\.unwrap_or\(sc\(current_appearance_preset\(\)\.metrics\(\)\.widget_height\)\)') {
+    throw 'Widget-height fallback must not eagerly re-lock STATE through current_appearance_preset().'
+}
+
 if ($source -notmatch 'WM_CAPTURECHANGED') {
     throw 'Drag handling must clear dragging state when mouse capture is lost (WM_CAPTURECHANGED).'
 }
@@ -34,4 +38,4 @@ if ($source -notmatch 'WM_CANCELMODE') {
     throw 'Drag handling must clear dragging state when Windows cancels the interaction (WM_CANCELMODE).'
 }
 
-Write-Host 'PASS: taskbar drag handler avoids re-entrant STATE locking and releases cancelled capture state.'
+Write-Host 'PASS: taskbar state-lock paths avoid re-entrant locking and cancelled drag capture is released.'
