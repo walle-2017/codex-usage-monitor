@@ -1,0 +1,54 @@
+name: Cleanup Merged Branches
+
+on:
+  push:
+    branches:
+      - codex-only-v1-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex-only-v1-cleanup
+          fetch-depth: 0
+
+      - name: Delete only branches fully merged into main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+          branches=(
+            add-percent-gap
+            appearance-presets
+            codex-only-cleanup-v1.0.0
+            fix-compact-layout-clipping
+            fix-language-independent-remaining-quota
+            fix-percent-glyph-clipping
+            gdi-acrylic-panel
+            hotfix-render-layered-deadlock
+            refine-compact-panel-spacing
+            refine-panel-spacing-cursor
+            refine-taskbar-layout-small-mode
+            safe-no-codex-cli
+            taskbar-drag-ui-fixes
+            windows-system-proxy
+          )
+
+          for branch in "${branches[@]}"; do
+            if ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+              echo "MISSING $branch"
+              continue
+            fi
+            if git merge-base --is-ancestor "origin/$branch" origin/main; then
+              echo "DELETE $branch"
+              git push origin --delete "$branch"
+            else
+              echo "KEEP_UNMERGED $branch"
+            fi
+          done
