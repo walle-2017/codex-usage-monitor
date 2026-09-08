@@ -1,6 +1,6 @@
 # Codex Usage installation model
 
-Codex Usage remains a single native Windows executable. Installation only places the executable and an uninstall helper in a stable per-user directory; it does not add a runtime, service, driver, telemetry component, or machine-wide dependency.
+Codex Usage is a single native Windows executable. Installation places the executable and uninstall helper in a stable per-user directory; it does not add a runtime, service, driver, telemetry component, or machine-wide dependency.
 
 ## Direct installation
 
@@ -8,24 +8,43 @@ Codex Usage remains a single native Windows executable. Installation only places
 - Executable: `%LOCALAPPDATA%\Programs\CodexUsage\codex-usage.exe`
 - Uninstall helper: `%LOCALAPPDATA%\Programs\CodexUsage\uninstall.ps1`
 - Start menu shortcut: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Codex Usage.lnk`
+- Desktop shortcut: `Codex Usage.lnk`
 - Add/Remove Programs key: `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsage`
 
-The installer is per-user and does not request elevation. It verifies the release SHA256 before replacing an existing executable. Replacement uses a temporary file and keeps the previous executable until the new file has been placed successfully.
+The installer is per-user and does not request elevation. It verifies the release SHA256 before replacing an existing executable. Replacement uses a staged `.new` file and preserves the previous executable as `.old` until the new installation has completed successfully.
+
+Online installation downloads release assets only from the fork repository:
+
+```text
+walle-2017/codex-usage-monitor
+```
+
+The installer expects `codex-usage.exe`, `codex-usage.exe.sha256`, and `uninstall.ps1` from the same Release.
 
 ## Portable mode
 
-`codex-usage.exe` can be run from any user-writable directory without installation. Portable mode uses the same `%APPDATA%\CodexUsage\settings.json` settings as a direct or WinGet installation.
+`codex-usage.exe` can be run directly from any user-writable directory. Portable and installed copies use the same settings file:
+
+```text
+%APPDATA%\CodexUsage\settings.json
+```
+
+The application has no built-in update checker or updater. To upgrade, explicitly install a newer fork Release or replace the portable executable yourself.
 
 ## Settings and startup behavior
 
 - Upgrades preserve `%APPDATA%\CodexUsage\settings.json`.
 - Normal uninstall preserves settings so a later reinstall restores preferences.
 - `uninstall.ps1 -RemoveSettings` explicitly deletes the settings directory.
-- The installer does not enable startup automatically. If startup was already enabled, installation preserves that choice and updates the registry value to the stable installed executable. Users otherwise control startup from the application's settings menu.
-- Uninstall removes the `CodexUsage` startup entry because its executable no longer exists.
+- The installer does not enable startup automatically.
+- If Start with Windows was already enabled, reinstall/upgrade preserves that choice and updates the registry entry to the stable installed executable.
+- Users can enable or disable Start with Windows from the application's settings menu.
+- Uninstall removes the `CodexUsage` startup entry because the executable no longer exists.
 
-## WinGet
+Current settings include taskbar position/screen, polling frequency, language, appearance, visible 5h/7d rows, quota-alert threshold, and alert de-duplication state.
 
-The WinGet package uses the release EXE as a portable installer with package identifier `Ray.CodexUsage`. WinGet owns its installation directory and upgrade/uninstall lifecycle. The in-app updater detects WinGet-managed paths and delegates upgrades back to WinGet.
+## Release integrity
 
-The PowerShell installer is not used as a WinGet installer because the public WinGet community repository does not accept script-based installers.
+The release executable is accompanied by `codex-usage.exe.sha256`. The PowerShell installer computes SHA256 for the staged executable and aborts installation if it does not match the expected release checksum.
+
+For the v1.0.0 baseline, the executable's Windows FileVersion/ProductVersion and the application's read-only version menu are both derived from the Cargo package version.
