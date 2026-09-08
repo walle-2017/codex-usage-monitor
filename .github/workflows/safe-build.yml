@@ -27,6 +27,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-codex-only-runtime.ps1
 
+      - name: Verify dead-code cleanup
+        shell: pwsh
+        run: ./scripts/assert-clean-codex-only-source.ps1
+
       - name: Verify taskbar drag capture handling
         shell: pwsh
         run: ./scripts/assert-drag-handler-safe.ps1
@@ -44,9 +48,14 @@ jobs:
         run: ./scripts/assert-language-independent-quota.ps1
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Run tests
         run: cargo test
+
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Build release binary
         run: cargo build --release
