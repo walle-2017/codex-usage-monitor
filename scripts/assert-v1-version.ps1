@@ -49,3 +49,4 @@ if ($LASTEXITCODE -notin @(0, 1)) {
 }
 
 Write-Output "Version contract verified: v$ExpectedVersion"
+exit 0
