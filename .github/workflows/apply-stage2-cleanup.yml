@@ -27,6 +27,7 @@ jobs:
         run: |
           python scripts/apply-stage2-cleanup.py
           python scripts/fix-stage2-security-feature.py
+          python scripts/fix-stage2-clippy.py
           if (Test-Path src/updater.rs) { git rm src/updater.rs }
           if (Test-Path iterations) { git rm -r iterations }
           if (Test-Path packaging/winget) { git rm -r packaging/winget }
