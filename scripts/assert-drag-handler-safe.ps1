@@ -30,6 +30,21 @@ if ($source -match 'map\(widget_height_for_state\)\s*\.unwrap_or\(sc\(current_ap
     throw 'Widget-height fallback must not eagerly re-lock STATE through current_appearance_preset().'
 }
 
+$setCursorMatch = [regex]::Match(
+    $source,
+    '(?s)WM_SETCURSOR\s*=>\s*\{(?<body>.*?)\n\s*WM_LBUTTONDOWN\s*=>'
+)
+if (-not $setCursorMatch.Success) {
+    throw 'Unable to locate WM_SETCURSOR handler.'
+}
+$setCursorBody = $setCursorMatch.Groups['body'].Value
+if ($setCursorBody -notmatch 'IDC_SIZEALL') {
+    throw 'Drag handle hover/drag cursor must use the four-way move cursor IDC_SIZEALL.'
+}
+if ($setCursorBody -match 'IDC_SIZEWE') {
+    throw 'Drag handle must not use the horizontal resize cursor IDC_SIZEWE.'
+}
+
 if ($source -notmatch 'WM_CAPTURECHANGED') {
     throw 'Drag handling must clear dragging state when mouse capture is lost (WM_CAPTURECHANGED).'
 }
@@ -38,4 +53,4 @@ if ($source -notmatch 'WM_CANCELMODE') {
     throw 'Drag handling must clear dragging state when Windows cancels the interaction (WM_CANCELMODE).'
 }
 
-Write-Host 'PASS: taskbar state-lock paths avoid re-entrant locking and cancelled drag capture is released.'
+Write-Host 'PASS: taskbar state-lock paths avoid re-entrant locking, use a move cursor, and release cancelled drag capture.'
