@@ -341,8 +341,6 @@ struct SettingsFile {
     widget_visible: bool,
     #[serde(default)]
     appearance_preset: AppearancePreset,
-    small_taskbar_mode: bool,
-    small_show_weekly: bool,
     #[serde(default = "default_show_claude_code")]
     show_claude_code: bool,
     #[serde(default = "default_show_codex")]
@@ -4010,7 +4008,6 @@ fn draw_drag_handle(hdc: HDC, height: i32, is_dark: bool) {
     let dot = sc(2).max(1);
     let gap_x = sc(1).max(1);
     let gap_y = sc(2).max(1);
-    let matrix_w = dot * 2 + gap_x;
     let matrix_h = dot * 3 + gap_y * 2;
     let origin_x = sc(DRAG_HANDLE_VISUAL_INSET_X);
     let origin_y = (height - matrix_h) / 2;
