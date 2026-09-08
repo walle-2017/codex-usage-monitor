@@ -1,0 +1,33 @@
+name: Apply Panel Spacing Cursor Refinement
+
+on:
+  push:
+    branches:
+      - refine-panel-spacing-cursor
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refine-panel-spacing-cursor
+          fetch-depth: 0
+
+      - name: Apply window refinement
+        shell: pwsh
+        run: ./scripts/apply-panel-spacing-cursor-refinement.ps1
+
+      - name: Commit source refinement
+        shell: pwsh
+        run: |
+          if (-not (git status --porcelain)) { throw 'Patch produced no source changes.' }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/window.rs
+          git commit -m 'style: refine panel spacing and drag cursor'
+          git push origin HEAD:refine-panel-spacing-cursor
