@@ -8,18 +8,18 @@ $tray = Get-Content -Raw (Join-Path $srcRoot 'tray_icon.rs')
 
 # Runtime provider implementations must be Codex-only. Compatibility fields and
 # localization strings are removed in the following dead-code-cleanup stage.
-foreach ($forbidden in @(
-    'poll_claude_code',
-    'poll_antigravity',
-    'USAGE_URL',
-    'MESSAGES_URL',
-    'ANTIGRAVITY_ENDPOINTS',
-    'ANTIGRAVITY_CREDENTIAL_TARGET',
-    'cli_refresh_windows_token',
-    'cli_refresh_wsl_token'
+foreach ($pattern in @(
+    '\bpoll_claude_code\b',
+    '\bpoll_antigravity\b',
+    '(?m)^\s*const\s+USAGE_URL\s*:',
+    '(?m)^\s*const\s+MESSAGES_URL\s*:',
+    '(?m)^\s*const\s+ANTIGRAVITY_ENDPOINTS\s*:',
+    '(?m)^\s*const\s+ANTIGRAVITY_CREDENTIAL_TARGET\s*:',
+    '\bcli_refresh_windows_token\b',
+    '\bcli_refresh_wsl_token\b'
 )) {
-    if ($poller -match [regex]::Escape($forbidden)) {
-        throw "Codex-only poller must not contain provider runtime path: $forbidden"
+    if ($poller -match $pattern) {
+        throw "Codex-only poller must not contain provider runtime path: $pattern"
     }
 }
 
