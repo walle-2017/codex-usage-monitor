@@ -1,9 +1,11 @@
 $ErrorActionPreference = 'Stop'
 
-$srcRoot = Join-Path $PSScriptRoot '..\src'
+$repoRoot = Join-Path $PSScriptRoot '..'
+$srcRoot = Join-Path $repoRoot 'src'
 $sourceFiles = Get-ChildItem -Path $srcRoot -Recurse -File -Filter '*.rs'
 $source = ($sourceFiles | ForEach-Object { Get-Content -Raw $_.FullName }) -join "`n"
-$cargo = Get-Content -Raw (Join-Path $PSScriptRoot '..\Cargo.toml')
+$cargo = Get-Content -Raw (Join-Path $repoRoot 'Cargo.toml')
+$installer = Get-Content -Raw (Join-Path $PSScriptRoot 'install.ps1')
 
 $forbidden = @(
     '\bmod\s+updater\s*;',
@@ -35,9 +37,20 @@ foreach ($pattern in $forbidden) {
 if (Test-Path (Join-Path $srcRoot 'updater.rs')) {
     throw 'src/updater.rs must be deleted.'
 }
-
+if (Test-Path (Join-Path $repoRoot 'iterations')) {
+    throw 'Historical iterations/ directory must be removed.'
+}
+if (Test-Path (Join-Path $repoRoot 'packaging\winget')) {
+    throw 'Obsolete WinGet packaging must be removed.'
+}
 if ($cargo -match '(?m)^sha2\s*=') {
     throw 'sha2 dependency is updater-only and must be removed.'
 }
+if ($cargo -match 'upstream-ray/codex-usage-monitor') {
+    throw 'Cargo package metadata must point at this fork, not upstream-ray.'
+}
+if ($installer -notmatch "\$Repository\s*=\s*'walle-2017/codex-usage-monitor'") {
+    throw 'Installer must download releases from this fork.'
+}
 
-Write-Host 'PASS: source tree contains no removed provider, updater, WinGet, or widget-visibility code.'
+Write-Host 'PASS: source and repository contain no removed providers, updater, WinGet packaging, widget visibility toggle, or historical iteration artifacts.'
