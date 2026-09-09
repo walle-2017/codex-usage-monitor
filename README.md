@@ -9,7 +9,7 @@
 
 ![Screenshot](.github/animation.gif)
 
-A lightweight native Windows taskbar widget for monitoring **Codex usage**. The v1.0.0 fork is intentionally Codex-only: it reads the credentials already maintained by Codex and shows the remaining 5-hour and weekly quota directly in the taskbar.
+A lightweight native Windows taskbar widget for monitoring **Codex usage**. The current v1.0.1 fork is intentionally Codex-only: it reads the credentials already maintained by Codex and shows the remaining 5-hour and weekly quota directly in the taskbar.
 
 ## Features
 
@@ -21,7 +21,7 @@ A lightweight native Windows taskbar widget for monitoring **Codex usage**. The 
 - Configurable refresh interval: 1 minute, 5 minutes, 15 minutes, or 1 hour
 - Windows light/dark theme support
 - Simplified Chinese and multiple other UI languages
-- Multi-monitor taskbar placement and drag positioning
+- Multi-monitor taskbar placement with live cross-taskbar dragging while the mouse button remains held
 - Explorer restart watchdog and single-instance protection
 - Windows manual system-proxy support when explicit proxy environment variables are absent
 - One tray icon for refresh/settings/exit while the taskbar widget remains visible
@@ -72,7 +72,7 @@ Normal uninstall preserves `%APPDATA%\CodexUsage\settings.json`. Add `-RemoveSet
 Run `codex-usage.exe` or the installed shortcut. The widget embeds into the selected Windows taskbar and the notification area keeps one tray icon available for commands.
 
 - Drag the left handle to reposition the widget.
-- On multi-monitor systems, move the widget to the taskbar you want to use.
+- On multi-monitor systems, keep holding the mouse button and drag onto another taskbar; the widget reattaches immediately and continues following the cursor.
 - Right-click the widget or tray icon for Refresh, Update Frequency, usage-row controls, quota alerts, Appearance, Start with Windows, Reset Position, Language, the read-only version entry, and Exit.
 - The taskbar widget is intentionally always visible while the process is running; there is no hide/show toggle.
 
@@ -129,7 +129,7 @@ The monitor does not directly edit `auth.json` and does not start Codex CLI proc
 
 ## Version and releases
 
-The first cleaned Codex-only baseline is **1.0.0**. The in-app menu displays `v1.0.0` from the package version, and Windows executable metadata is generated from the same source.
+The current release is **1.0.1**. The in-app menu displays `v1.0.1` from the package version, and Windows executable metadata is generated from the same source. The initial cleaned Codex-only safety baseline was `v1.0.0`.
 
 The application itself contains no update checker or in-app updater. Upgrades are explicit: install a newer fork release or replace the portable executable yourself.
 
