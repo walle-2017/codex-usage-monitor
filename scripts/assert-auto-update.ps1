@@ -35,6 +35,7 @@ Assert-Match $updater '\.redirects\(0\)' 'Latest Release discovery must inspect 
 Assert-Match $updater 'header\("Location"\)' 'Latest Release discovery must inspect the Location header.'
 Assert-Match $updater 'fn\s+parse_release_redirect\s*\(' 'Latest Release redirect must be parsed by a strict helper.'
 Assert-Match $updater 'releases/tag/v' 'Latest Release redirect must be restricted to this fork release tag path.'
+Assert-Match $updater 'discovery=github-redirect' 'Runtime log must identify redirect-based Release discovery.'
 Assert-Match $updater 'https://github\.com/walle-2017/codex-usage-monitor/releases/download/' 'Release assets must stay pinned to this fork.'
 
 Assert-Match $updater 'std::env::current_exe\(\)' 'Updater must target the running installed or portable executable.'
