@@ -78,9 +78,7 @@ struct AppState {
     taskbar_index: usize,
     tray_offset: i32,
     dragging: bool,
-    drag_start_mouse_x: i32,
-    drag_start_client_x: i32,
-    drag_start_offset: i32,
+    drag_anchor_logical_x: i32,
     drag_reparenting: bool,
 }
 
@@ -699,15 +697,18 @@ fn clamp_offset_for_taskbar(taskbar_hwnd: HWND, taskbar_rect: RECT, offset: i32)
     offset.clamp(0, max_offset)
 }
 
-fn offset_for_drop_point(
-    taskbar_hwnd: HWND,
-    taskbar_rect: RECT,
-    pt: POINT,
-    drag_start_client_x: i32,
-) -> i32 {
+fn drag_anchor_px_for_dpi(logical_x: i32, dpi: u32) -> i32 {
+    let dpi = dpi.max(1);
+    (logical_x as f64 * dpi as f64 / 96.0).round() as i32
+}
+
+fn drag_left_from_cursor(taskbar_rect: RECT, pt: POINT, anchor_px: i32) -> i32 {
+    pt.x - taskbar_rect.left - anchor_px
+}
+
+fn offset_for_drag_left(taskbar_hwnd: HWND, taskbar_rect: RECT, drag_left: i32) -> i32 {
     let tray_left = tray_left_for_taskbar(taskbar_hwnd, taskbar_rect);
-    let desired_left = pt.x - taskbar_rect.left - drag_start_client_x;
-    let offset = tray_left - taskbar_rect.left - total_widget_width() - desired_left;
+    let offset = tray_left - taskbar_rect.left - total_widget_width() - drag_left;
     clamp_offset_for_taskbar(taskbar_hwnd, taskbar_rect, offset)
 }
 
@@ -1222,9 +1223,7 @@ pub fn run() {
                 taskbar_index: settings.taskbar_index,
                 tray_offset: settings.tray_offset,
                 dragging: false,
-                drag_start_mouse_x: 0,
-                drag_start_client_x: 0,
-                drag_start_offset: 0,
+                drag_anchor_logical_x: 0,
                 drag_reparenting: false,
             });
         }
@@ -2124,14 +2123,19 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
 
-            let mut pt = POINT::default();
-            let _ = GetCursorPos(&mut pt);
+            let window_dpi = GetDpiForWindow(hwnd);
+            let dpi = if window_dpi > 0 {
+                window_dpi
+            } else {
+                CURRENT_DPI.load(Ordering::Relaxed)
+            }
+            .max(1);
+            let anchor_logical_x = (client_x as f64 * 96.0 / dpi as f64).round() as i32;
+
             let mut state = lock_state();
             if let Some(s) = state.as_mut() {
                 s.dragging = true;
-                s.drag_start_mouse_x = pt.x;
-                s.drag_start_client_x = client_x;
-                s.drag_start_offset = s.tray_offset;
+                s.drag_anchor_logical_x = anchor_logical_x;
             }
             SetCapture(hwnd);
             LRESULT(0)
@@ -2145,53 +2149,41 @@ unsafe extern "system" fn wnd_proc(
                 let mut pt = POINT::default();
                 let _ = GetCursorPos(&mut pt);
 
-                // Detect cross-taskbar movement while the button is still held.
-                // Reparent immediately so the widget keeps following the cursor
-                // instead of stopping at the current taskbar edge until button-up.
-                let drag_target = {
+                let current_taskbar_index = {
                     let state = lock_state();
-                    state
-                        .as_ref()
-                        .map(|s| (s.taskbar_index, s.drag_start_client_x))
+                    state.as_ref().map(|s| s.taskbar_index)
                 };
                 let mut switched_taskbar = false;
-                if let Some((current_taskbar_index, drag_start_client_x)) = drag_target {
+
+                if let Some(current_index) = current_taskbar_index {
                     if let Some((target_index, target_taskbar)) = taskbar_at_point(pt) {
-                        if target_index != current_taskbar_index {
-                            let new_offset = offset_for_drop_point(
-                                target_taskbar.hwnd,
-                                target_taskbar.rect,
-                                pt,
-                                drag_start_client_x,
-                            );
+                        if target_index != current_index {
+                            let previous_dpi = CURRENT_DPI.load(Ordering::Relaxed);
+                            let target_dpi = GetDpiForWindow(target_taskbar.hwnd);
+                            if target_dpi > 0 {
+                                CURRENT_DPI.store(target_dpi, Ordering::Relaxed);
+                            }
+
                             {
                                 let mut state = lock_state();
                                 if let Some(s) = state.as_mut() {
-                                    s.tray_offset = new_offset;
                                     s.drag_reparenting = true;
                                 }
                             }
-
                             let _ = ReleaseCapture();
 
-
                             if attach_to_taskbar(hwnd, target_index) {
-                                // SetParent can disturb capture/drag state. Restore
-                                // both after reparenting and reset the horizontal
-                                // drag origin to the new taskbar so movement stays
-                                // continuous in either direction (A -> B -> A).
                                 {
                                     let mut state = lock_state();
                                     if let Some(s) = state.as_mut() {
                                         s.dragging = true;
-                                        s.drag_start_mouse_x = pt.x;
-                                        s.drag_start_offset = new_offset;
                                         s.drag_reparenting = false;
                                     }
                                 }
                                 SetCapture(hwnd);
                                 switched_taskbar = true;
                             } else {
+                                CURRENT_DPI.store(previous_dpi, Ordering::Relaxed);
                                 let mut state = lock_state();
                                 if let Some(s) = state.as_mut() {
                                     s.drag_reparenting = false;
@@ -2202,93 +2194,62 @@ unsafe extern "system" fn wnd_proc(
                     }
                 }
 
-                let move_target = {
-                    let mut state = lock_state();
-                    let s = match state.as_mut() {
-                        Some(s) => s,
-                        None => return LRESULT(0),
-                    };
-
-                    // Moving mouse left = positive delta = larger offset (further left)
-                    let delta = s.drag_start_mouse_x - pt.x;
-                    let mut new_offset = s.drag_start_offset + delta;
-
-                    // Clamp: offset >= 0 (can't go right of default)
-                    if new_offset < 0 {
-                        new_offset = 0;
-                    }
-
-                    let taskbar_hwnd = s.taskbar_hwnd;
-                    let embedded = s.embedded;
-                    let hwnd_val = s.hwnd.to_hwnd();
-
-                    // Clamp: don't go past left edge of taskbar
-                    if let Some(taskbar_hwnd) = taskbar_hwnd {
-                        if let Some(taskbar_rect) = native_interop::get_taskbar_rect(taskbar_hwnd) {
-                            let mut tray_left = taskbar_rect.right;
-                            if let Some(tray_hwnd) =
-                                native_interop::find_child_window(taskbar_hwnd, "TrayNotifyWnd")
-                            {
-                                if let Some(tray_rect) =
-                                    native_interop::get_window_rect_safe(tray_hwnd)
-                                {
-                                    tray_left = tray_rect.left;
-                                }
-                            }
-                            let widget_width = total_widget_width_for_state(s);
-                            let max_offset = (tray_left - taskbar_rect.left - widget_width).max(0);
-                            if new_offset > max_offset {
-                                new_offset = max_offset;
-                            }
-
-                            s.tray_offset = new_offset;
-
-                            let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
-                            let anchor_top = taskbar_rect.top;
-                            let anchor_height = taskbar_height;
-                            let widget_height = widget_height_for_state(s);
-                            let y = compute_anchor_y(anchor_top, anchor_height, widget_height);
-                            let x = if embedded {
-                                tray_left - taskbar_rect.left - widget_width - new_offset
-                            } else {
-                                tray_left - widget_width - new_offset
-                            };
-                            Some((
-                                hwnd_val,
-                                embedded,
-                                x,
-                                y,
-                                taskbar_rect.top,
-                                widget_width,
-                                widget_height,
-                            ))
-                        } else {
-                            s.tray_offset = new_offset;
-                            None
-                        }
-                    } else {
-                        s.tray_offset = new_offset;
-                        None
-                    }
+                let drag_context = {
+                    let state = lock_state();
+                    state.as_ref().and_then(|s| {
+                        s.taskbar_hwnd
+                            .map(|taskbar_hwnd| (taskbar_hwnd, s.drag_anchor_logical_x))
+                    })
                 };
 
-                if let Some((hwnd_val, embedded, x, y, taskbar_top, widget_width, widget_height)) =
-                    move_target
-                {
-                    if embedded {
+                if let Some((taskbar_hwnd, anchor_logical_x)) = drag_context {
+                    if let Some(taskbar_rect) = native_interop::get_taskbar_rect(taskbar_hwnd) {
+                        let dpi = GetDpiForWindow(taskbar_hwnd);
+                        if dpi > 0 {
+                            CURRENT_DPI.store(dpi, Ordering::Relaxed);
+                        }
+                        let effective_dpi = CURRENT_DPI.load(Ordering::Relaxed).max(1);
+                        let anchor_px = drag_anchor_px_for_dpi(anchor_logical_x, effective_dpi);
+                        let drag_left = drag_left_from_cursor(taskbar_rect, pt, anchor_px);
+                        let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
+                        let small_mode = is_small_taskbar_height(taskbar_height);
+
+                        let (widget_width, widget_height, small_mode_changed) = {
+                            let mut state = lock_state();
+                            let s = match state.as_mut() {
+                                Some(s) => s,
+                                None => return LRESULT(0),
+                            };
+                            let changed = s.small_taskbar_mode != small_mode;
+                            if changed {
+                                s.small_taskbar_mode = small_mode;
+                                if small_mode {
+                                    s.small_show_weekly = false;
+                                }
+                            }
+                            (
+                                total_widget_width_for_state(s),
+                                widget_height_for_state(s),
+                                changed,
+                            )
+                        };
+                        let y = compute_anchor_y(taskbar_rect.top, taskbar_height, widget_height)
+                            - taskbar_rect.top;
+
+                        // Pointer alignment is authoritative while dragging. The taskbar
+                        // clips any temporary overhang; docked bounds are applied on button-up.
                         native_interop::move_window(
-                            hwnd_val,
-                            x,
-                            y - taskbar_top,
+                            hwnd,
+                            drag_left,
+                            y,
                             widget_width,
                             widget_height,
                         );
-                    } else {
-                        native_interop::move_window(hwnd_val, x, y, widget_width, widget_height);
+
+                        if switched_taskbar || small_mode_changed {
+                            render_layered();
+                        }
                     }
-                }
-                if switched_taskbar {
-                    render_layered();
                 }
             }
             LRESULT(0)
@@ -2305,14 +2266,14 @@ unsafe extern "system" fn wnd_proc(
             LRESULT(0)
         }
         WM_CAPTURECHANGED => {
-    let mut state = lock_state();
-    if let Some(s) = state.as_mut() {
-        if !s.drag_reparenting {
-            s.dragging = false;
+            let mut state = lock_state();
+            if let Some(s) = state.as_mut() {
+                if !s.drag_reparenting {
+                    s.dragging = false;
+                }
+            }
+            LRESULT(0)
         }
-    }
-    LRESULT(0)
-}
         WM_LBUTTONUP => {
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
@@ -2320,9 +2281,10 @@ unsafe extern "system" fn wnd_proc(
                 let mut state = lock_state();
                 if let Some(s) = state.as_mut() {
                     s.drag_reparenting = false;
-                    if s.dragging {
-                        s.dragging = false;
-                        Some((s.taskbar_index, s.drag_start_client_x))
+                    let was_dragging = s.dragging;
+                    s.dragging = false;
+                    if was_dragging {
+                        Some((s.taskbar_index, s.drag_anchor_logical_x))
                     } else {
                         None
                     }
@@ -2331,6 +2293,7 @@ unsafe extern "system" fn wnd_proc(
                 }
             };
             let _ = ReleaseCapture();
+
             if drag_result.is_none() {
                 let client_x = (lparam.0 & 0xFFFF) as i16 as i32;
                 let client_y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
@@ -2353,25 +2316,38 @@ unsafe extern "system" fn wnd_proc(
                     }
                 }
             }
-            if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
-                if let Some((target_index, target_taskbar)) = taskbar_at_point(pt) {
+
+            if let Some((current_taskbar_index, anchor_logical_x)) = drag_result {
+                if let Some((target_index, _)) = taskbar_at_point(pt) {
                     if target_index != current_taskbar_index {
-                        let new_offset = offset_for_drop_point(
-                            target_taskbar.hwnd,
-                            target_taskbar.rect,
-                            pt,
-                            drag_start_client_x,
-                        );
+                        let _ = attach_to_taskbar(hwnd, target_index);
+                    }
+                }
+
+                refresh_dpi();
+                let final_taskbar = {
+                    let state = lock_state();
+                    state.as_ref().and_then(|s| s.taskbar_hwnd)
+                };
+                if let Some(taskbar_hwnd) = final_taskbar {
+                    if let Some(taskbar_rect) = native_interop::get_taskbar_rect(taskbar_hwnd) {
+                        let dpi = GetDpiForWindow(taskbar_hwnd);
+                        if dpi > 0 {
+                            CURRENT_DPI.store(dpi, Ordering::Relaxed);
+                        }
+                        let effective_dpi = CURRENT_DPI.load(Ordering::Relaxed).max(1);
+                        let anchor_px = drag_anchor_px_for_dpi(anchor_logical_x, effective_dpi);
+                        let final_drag_left = drag_left_from_cursor(taskbar_rect, pt, anchor_px);
+                        let new_offset =
+                            offset_for_drag_left(taskbar_hwnd, taskbar_rect, final_drag_left);
                         {
                             let mut state = lock_state();
                             if let Some(s) = state.as_mut() {
                                 s.tray_offset = new_offset;
                             }
                         }
-                        if attach_to_taskbar(hwnd, target_index) {
-                            position_at_taskbar();
-                            render_layered();
-                        }
+                        position_at_taskbar();
+                        render_layered();
                     }
                 }
                 save_state_settings();
@@ -3496,6 +3472,3 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
-
-
-
