@@ -29,198 +29,96 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $path = 'src/window.rs'
           $source = Get-Content -Raw -LiteralPath $path
+          $nl = "`r`n"
 
-          $source = $source.Replace(
-          @'
-              drag_start_offset: i32,
+          $fieldRx = [regex]::new('(?m)^(?<i>\s*)drag_start_offset: i32,\r?$')
+          if (-not $fieldRx.IsMatch($source)) { throw 'drag_start_offset field not found.' }
+          $source = $fieldRx.Replace($source, '${i}drag_start_offset: i32,' + $nl + '${i}drag_reparenting: bool,', 1)
+
+          $initRx = [regex]::new('(?m)^(?<i>\s*)drag_start_offset: 0,\r?$')
+          if (-not $initRx.IsMatch($source)) { throw 'drag_start_offset initializer not found.' }
+          $source = $initRx.Replace($source, '${i}drag_start_offset: 0,' + $nl + '${i}drag_reparenting: false,', 1)
+
+          $moveRx = [regex]::new('(?s)(?<head>WM_MOUSEMOVE\s*=>\s*\{)(?<body>.*?)(?<tail>\r?\n\s*WM_CANCELMODE\s*=>)')
+          $moveMatch = $moveRx.Match($source)
+          if (-not $moveMatch.Success) { throw 'WM_MOUSEMOVE handler not found.' }
+          $body = $moveMatch.Groups['body'].Value
+
+          $trayRx = [regex]::new('(?m)^(?<i>\s*)s\.tray_offset = new_offset;\r?$')
+          if (-not $trayRx.IsMatch($body)) { throw 'Live-drag tray offset assignment not found.' }
+          $body = $trayRx.Replace($body, '${i}s.tray_offset = new_offset;' + $nl + '${i}s.drag_reparenting = true;', 1)
+
+          $attachRx = [regex]::new('(?m)^(?<i>\s*)if attach_to_taskbar\(hwnd, target_index\) \{\r?$')
+          if (-not $attachRx.IsMatch($body)) { throw 'Live-drag attach call not found.' }
+          $body = $attachRx.Replace($body, '${i}let _ = ReleaseCapture();' + $nl + $nl + '${i}if attach_to_taskbar(hwnd, target_index) {', 1)
+
+          $originRx = [regex]::new('(?m)^(?<i>\s*)s\.drag_start_offset = new_offset;\r?$')
+          if (-not $originRx.IsMatch($body)) { throw 'Live-drag origin reset not found.' }
+          $body = $originRx.Replace($body, '${i}s.drag_start_offset = new_offset;' + $nl + '${i}s.drag_reparenting = false;', 1)
+
+          $successRx = [regex]::new('(?m)^(?<i>\s*)SetCapture\(hwnd\);\r?\n\k<i>switched_taskbar = true;\r?\n(?<c>\s*)\}')
+          $successMatch = $successRx.Match($body)
+          if (-not $successMatch.Success) { throw 'Live-drag successful recapture block not found.' }
+          $i = $successMatch.Groups['i'].Value
+          $c = $successMatch.Groups['c'].Value
+          $replacement = $i + 'SetCapture(hwnd);' + $nl +
+              $i + 'switched_taskbar = true;' + $nl +
+              $c + '} else {' + $nl +
+              $i + 'let mut state = lock_state();' + $nl +
+              $i + 'if let Some(s) = state.as_mut() {' + $nl +
+              $i + '    s.drag_reparenting = false;' + $nl +
+              $i + '}' + $nl +
+              $i + 'SetCapture(hwnd);' + $nl +
+              $c + '}'
+          $body = $successRx.Replace($body, $replacement, 1)
+
+          $source = $source.Substring(0, $moveMatch.Groups['body'].Index) + $body +
+              $source.Substring($moveMatch.Groups['body'].Index + $moveMatch.Groups['body'].Length)
+
+          $cancelRx = [regex]::new('(?s)(?<head>WM_CANCELMODE\s*=>\s*\{)(?<body>.*?)(?<tail>\r?\n\s*WM_CAPTURECHANGED\s*=>)')
+          $cancelMatch = $cancelRx.Match($source)
+          if (-not $cancelMatch.Success) { throw 'WM_CANCELMODE handler not found.' }
+          $cancelBody = $cancelMatch.Groups['body'].Value
+          $cancelDragRx = [regex]::new('(?m)^(?<i>\s*)s\.dragging = false;\r?$')
+          if (-not $cancelDragRx.IsMatch($cancelBody)) { throw 'WM_CANCELMODE dragging reset not found.' }
+          $cancelBody = $cancelDragRx.Replace($cancelBody, '${i}s.dragging = false;' + $nl + '${i}s.drag_reparenting = false;', 1)
+          $source = $source.Substring(0, $cancelMatch.Groups['body'].Index) + $cancelBody +
+              $source.Substring($cancelMatch.Groups['body'].Index + $cancelMatch.Groups['body'].Length)
+
+          $captureRx = [regex]::new('(?s)WM_CAPTURECHANGED\s*=>\s*\{\s*let mut state = lock_state\(\);\s*if let Some\(s\) = state\.as_mut\(\) \{\s*s\.dragging = false;\s*\}\s*LRESULT\(0\)\s*\}')
+          if (-not $captureRx.IsMatch($source)) { throw 'WM_CAPTURECHANGED handler shape not found.' }
+          $captureReplacement = @'
+          WM_CAPTURECHANGED => {
+              let mut state = lock_state();
+              if let Some(s) = state.as_mut() {
+                  if !s.drag_reparenting {
+                      s.dragging = false;
+                  }
+              }
+              LRESULT(0)
           }
-          '@,
-          @'
-              drag_start_offset: i32,
-              drag_reparenting: bool,
-          }
-          '@)
-
-          $source = $source.Replace(
-          @'
-                          drag_start_offset: 0,
-                      });
-          '@,
-          @'
-                          drag_start_offset: 0,
-                          drag_reparenting: false,
-                      });
-          '@)
-
-          $oldSwitch = @'
-                          if target_index != current_taskbar_index {
-                              let new_offset = offset_for_drop_point(
-                                  target_taskbar.hwnd,
-                                  target_taskbar.rect,
-                                  pt,
-                                  drag_start_client_x,
-                              );
-                              {
-                                  let mut state = lock_state();
-                                  if let Some(s) = state.as_mut() {
-                                      s.tray_offset = new_offset;
-                                  }
-                              }
-
-                              if attach_to_taskbar(hwnd, target_index) {
-                                  // SetParent can disturb capture/drag state. Restore
-                                  // both after reparenting and reset the horizontal
-                                  // drag origin to the new taskbar so movement stays
-                                  // continuous in either direction (A -> B -> A).
-                                  {
-                                      let mut state = lock_state();
-                                      if let Some(s) = state.as_mut() {
-                                          s.dragging = true;
-                                          s.drag_start_mouse_x = pt.x;
-                                          s.drag_start_offset = new_offset;
-                                      }
-                                  }
-                                  SetCapture(hwnd);
-                                  switched_taskbar = true;
-                              }
-                          }
           '@
-          $newSwitch = @'
-                          if target_index != current_taskbar_index {
-                              let new_offset = offset_for_drop_point(
-                                  target_taskbar.hwnd,
-                                  target_taskbar.rect,
-                                  pt,
-                                  drag_start_client_x,
-                              );
-                              {
-                                  let mut state = lock_state();
-                                  if let Some(s) = state.as_mut() {
-                                      s.tray_offset = new_offset;
-                                      s.drag_reparenting = true;
-                                  }
-                              }
-                              let _ = ReleaseCapture();
+          $source = $captureRx.Replace($source, $captureReplacement.Trim(), 1)
 
-                              if attach_to_taskbar(hwnd, target_index) {
-                                  {
-                                      let mut state = lock_state();
-                                      if let Some(s) = state.as_mut() {
-                                          s.dragging = true;
-                                          s.drag_start_mouse_x = pt.x;
-                                          s.drag_start_offset = new_offset;
-                                          s.drag_reparenting = false;
-                                      }
-                                  }
-                                  SetCapture(hwnd);
-                                  switched_taskbar = true;
-                              } else {
-                                  let mut state = lock_state();
-                                  if let Some(s) = state.as_mut() {
-                                      s.drag_reparenting = false;
-                                  }
-                                  SetCapture(hwnd);
-                              }
-                          }
-          '@
-          if (-not $source.Contains($oldSwitch)) { throw 'Expected live taskbar switch block not found.' }
-          $source = $source.Replace($oldSwitch, $newSwitch)
+          $upRx = [regex]::new('(?s)(?<head>WM_LBUTTONUP\s*=>\s*\{)(?<body>.*?)(?<tail>\r?\n\s*WM_RBUTTONUP\s*=>)')
+          $upMatch = $upRx.Match($source)
+          if (-not $upMatch.Success) { throw 'WM_LBUTTONUP handler not found.' }
+          $upBody = $upMatch.Groups['body'].Value
 
-          $oldCancel = @'
-                  WM_CANCELMODE => {
-                      {
-                          let mut state = lock_state();
-                          if let Some(s) = state.as_mut() {
-                              s.dragging = false;
-                          }
-                      }
-                      let _ = ReleaseCapture();
-                      LRESULT(0)
-                  }
-                  WM_CAPTURECHANGED => {
-                      let mut state = lock_state();
-                      if let Some(s) = state.as_mut() {
-                          s.dragging = false;
-                      }
-                      LRESULT(0)
-                  }
-          '@
-          $newCancel = @'
-                  WM_CANCELMODE => {
-                      {
-                          let mut state = lock_state();
-                          if let Some(s) = state.as_mut() {
-                              s.dragging = false;
-                              s.drag_reparenting = false;
-                          }
-                      }
-                      let _ = ReleaseCapture();
-                      LRESULT(0)
-                  }
-                  WM_CAPTURECHANGED => {
-                      let mut state = lock_state();
-                      if let Some(s) = state.as_mut() {
-                          if !s.drag_reparenting {
-                              s.dragging = false;
-                          }
-                      }
-                      LRESULT(0)
-                  }
-          '@
-          if (-not $source.Contains($oldCancel)) { throw 'Expected capture cancellation block not found.' }
-          $source = $source.Replace($oldCancel, $newCancel)
+          $ifDraggingRx = [regex]::new('(?m)^(?<i>\s*)if s\.dragging \{\r?$')
+          if (-not $ifDraggingRx.IsMatch($upBody)) { throw 'WM_LBUTTONUP dragging branch not found.' }
+          $upBody = $ifDraggingRx.Replace($upBody, '${i}s.drag_reparenting = false;' + $nl + '${i}if s.dragging {', 1)
 
-          $oldUp = @'
-                  WM_LBUTTONUP => {
-                      let mut pt = POINT::default();
-                      let _ = GetCursorPos(&mut pt);
-                      let drag_result = {
-                          let mut state = lock_state();
-                          if let Some(s) = state.as_mut() {
-                              if s.dragging {
-                                  s.dragging = false;
-                                  Some((s.taskbar_index, s.drag_start_client_x))
-                              } else {
-                                  None
-                              }
-                          } else {
-                              None
-                          }
-                      };
-                      if drag_result.is_none() {
-          '@
-          $newUp = @'
-                  WM_LBUTTONUP => {
-                      let mut pt = POINT::default();
-                      let _ = GetCursorPos(&mut pt);
-                      let drag_result = {
-                          let mut state = lock_state();
-                          if let Some(s) = state.as_mut() {
-                              s.drag_reparenting = false;
-                              if s.dragging {
-                                  s.dragging = false;
-                                  Some((s.taskbar_index, s.drag_start_client_x))
-                              } else {
-                                  None
-                              }
-                          } else {
-                              None
-                          }
-                      };
-                      let _ = ReleaseCapture();
-                      if drag_result.is_none() {
-          '@
-          if (-not $source.Contains($oldUp)) { throw 'Expected WM_LBUTTONUP prologue not found.' }
-          $source = $source.Replace($oldUp, $newUp)
+          $dragResultRx = [regex]::new('(?s)(?<block>let drag_result = \{.*?\r?\n\s*\};)(?<next>\r?\n\s*if drag_result\.is_none\(\))')
+          if (-not $dragResultRx.IsMatch($upBody)) { throw 'WM_LBUTTONUP drag_result block not found.' }
+          $upBody = $dragResultRx.Replace($upBody, '${block}' + $nl + '            let _ = ReleaseCapture();${next}', 1)
 
-          $source = $source.Replace(
-          @'
-                      if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
-                          let _ = ReleaseCapture();
-          '@,
-          @'
-                      if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
-          '@)
+          $conditionalReleaseRx = [regex]::new('(?m)^(?<i>\s*)if let Some\(\(current_taskbar_index, drag_start_client_x\)\) = drag_result \{\r?\n\s*let _ = ReleaseCapture\(\);\r?$')
+          if (-not $conditionalReleaseRx.IsMatch($upBody)) { throw 'Conditional WM_LBUTTONUP ReleaseCapture not found.' }
+          $upBody = $conditionalReleaseRx.Replace($upBody, '${i}if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {', 1)
+
+          $source = $source.Substring(0, $upMatch.Groups['body'].Index) + $upBody +
+              $source.Substring($upMatch.Groups['body'].Index + $upMatch.Groups['body'].Length)
 
           Set-Content -LiteralPath $path -Value $source -Encoding utf8
 
