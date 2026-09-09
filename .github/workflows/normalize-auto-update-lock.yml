@@ -1,0 +1,83 @@
+name: Normalize Auto Update Lockfile
+
+on:
+  push:
+    branches:
+      - feature/auto-update
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auto-update
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore baseline lock and resolve only the new dependency
+        shell: pwsh
+        run: |
+          git show origin/main:Cargo.lock | Set-Content -Encoding utf8 Cargo.lock
+          cargo check
+          cargo test
+          cargo clippy -- -D warnings
+
+      - name: Verify existing locked package versions were preserved
+        shell: pwsh
+        run: |
+          @'
+          import re, subprocess
+          from pathlib import Path
+
+          current = Path('Cargo.lock').read_text(encoding='utf-8-sig')
+          baseline = subprocess.check_output(['git','show','origin/main:Cargo.lock'], text=True)
+
+          def packages(text):
+              out = {}
+              for block in text.split('[[package]]')[1:]:
+                  name = re.search(r'^name = "([^"]+)"', block, re.M)
+                  version = re.search(r'^version = "([^"]+)"', block, re.M)
+                  source = re.search(r'^source = "([^"]+)"', block, re.M)
+                  if name and version:
+                      key = (name.group(1), source.group(1) if source else '')
+                      out.setdefault(key, []).append(version.group(1))
+              return {k: sorted(v) for k,v in out.items()}
+
+          old = packages(baseline)
+          new = packages(current)
+          changed = []
+          for key, versions in old.items():
+              if key[0] == 'codex-usage':
+                  continue
+              if key in new and new[key] != versions:
+                  changed.append((key, versions, new[key]))
+              elif key not in new:
+                  changed.append((key, versions, None))
+          if changed:
+              raise SystemExit('Existing lock packages changed unexpectedly: ' + repr(changed[:10]))
+
+          required = {'sha2','digest','crypto-common','block-buffer','generic-array','typenum','version_check','cpufeatures'}
+          names = {k[0] for k in new}
+          missing = required - names
+          if missing:
+              raise SystemExit('Missing expected sha2 dependency packages: ' + repr(sorted(missing)))
+          print('PASS: baseline lock packages preserved; only updater dependency graph added.')
+          '@ | Set-Content -Encoding utf8 verify_lock.py
+          python verify_lock.py
+          Remove-Item verify_lock.py
+
+      - name: Commit normalized lockfile and remove workflow
+        shell: pwsh
+        run: |
+          git config user.name "walle-2017"
+          git config user.email "1220754120@qq.com"
+          git rm .github/workflows/normalize-auto-update-lock.yml
+          git add Cargo.lock
+          git commit -m "build: keep updater lockfile changes minimal"
+          git push origin HEAD:feature/auto-update
