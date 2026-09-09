@@ -1,0 +1,103 @@
+name: Build Auto Update Simulation Once
+
+on:
+  push:
+    branches:
+      - feature/auto-update
+    paths:
+      - '.github/workflows/build-auto-update-simulation-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-simulation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auto-update
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Verify production source is still v1.0.2
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -Raw Cargo.toml
+          if ($manifest -notmatch '(?m)^version = "1\.0\.2"$') {
+            throw 'Expected production source version 1.0.2 before simulation patch.'
+          }
+          ./scripts/assert-auto-update.ps1
+          ./scripts/assert-runtime-log.ps1
+
+      - name: Patch version to 1.0.1 in runner only
+        shell: pwsh
+        run: |
+          $path = 'Cargo.toml'
+          $text = Get-Content -Raw $path
+          $patched = $text -replace '(?m)^version = "1\.0\.2"$', 'version = "1.0.1"'
+          if ($patched -eq $text) {
+            throw 'Simulation version patch did not apply.'
+          }
+          Set-Content -LiteralPath $path -Value $patched -Encoding utf8NoBOM
+
+          $manifest = Get-Content -Raw $path
+          if ($manifest -notmatch '(?m)^version = "1\.0\.1"$') {
+            throw 'Simulation manifest is not 1.0.1.'
+          }
+
+      - name: Test updater logic
+        shell: pwsh
+        run: cargo test updater::tests -- --nocapture
+
+      - name: Run Clippy
+        shell: pwsh
+        run: cargo clippy -- -D warnings
+
+      - name: Build simulated v1.0.1 executable
+        shell: pwsh
+        run: cargo build --release
+
+      - name: Verify simulated PE version and prepare artifact
+        shell: pwsh
+        run: |
+          $exe = Resolve-Path 'target/release/codex-usage.exe'
+          $version = (Get-Item $exe).VersionInfo.FileVersion
+          if ($version -notmatch '^1\.0\.1(?:\.0)?$') {
+            throw "Expected simulated PE FileVersion 1.0.1, got: $version"
+          }
+
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Copy-Item $exe artifact/codex-usage.exe
+          $hash = (Get-FileHash artifact/codex-usage.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  codex-usage.exe" | Set-Content artifact/codex-usage.exe.sha256 -Encoding ascii
+
+          @"
+          AUTO-UPDATE END-TO-END SIMULATION BUILD
+
+          Source branch: feature/auto-update
+          Source commit: $env:GITHUB_SHA
+          Simulated current version: 1.0.1
+          Expected discovered Release: v1.0.2
+          Expected post-update official v1.0.2 EXE SHA256:
+          33a2e08a6d7bc3f42bdf1de2a9a1c6cd82ff6d891a80e274e6951335d5eda428
+
+          This artifact only changes the Cargo package version inside the Actions runner.
+          The repository branch remains version 1.0.2.
+
+          After a successful update, the simulated executable is replaced by the
+          currently published official v1.0.2 Release executable. That released
+          binary predates the auto-update feature, so its version menu will return
+          to the original v1.0.2 behavior. This is expected for this end-to-end test.
+          "@ | Set-Content artifact/SIMULATION-INFO.txt -Encoding utf8
+
+          Write-Host "simulation_exe_sha256=$hash"
+          Write-Host "simulation_pe_version=$version"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-usage-auto-update-from-1.0.1-x64
+          path: artifact/*
+          if-no-files-found: error
