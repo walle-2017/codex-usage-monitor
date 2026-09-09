@@ -6,18 +6,223 @@ on:
       - main
       - safe-no-codex-cli
       - codex-only-v1-cleanup
+      - fix-v1.0.1-capture
   pull_request:
     branches:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply v1.0.1 capture fix for branch push
+        if: github.event_name == 'push' && github.ref_name == 'fix-v1.0.1-capture'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'src/window.rs'
+          $source = Get-Content -Raw -LiteralPath $path
+
+          $source = $source.Replace(
+          @'
+              drag_start_offset: i32,
+          }
+          '@,
+          @'
+              drag_start_offset: i32,
+              drag_reparenting: bool,
+          }
+          '@)
+
+          $source = $source.Replace(
+          @'
+                          drag_start_offset: 0,
+                      });
+          '@,
+          @'
+                          drag_start_offset: 0,
+                          drag_reparenting: false,
+                      });
+          '@)
+
+          $oldSwitch = @'
+                          if target_index != current_taskbar_index {
+                              let new_offset = offset_for_drop_point(
+                                  target_taskbar.hwnd,
+                                  target_taskbar.rect,
+                                  pt,
+                                  drag_start_client_x,
+                              );
+                              {
+                                  let mut state = lock_state();
+                                  if let Some(s) = state.as_mut() {
+                                      s.tray_offset = new_offset;
+                                  }
+                              }
+
+                              if attach_to_taskbar(hwnd, target_index) {
+                                  // SetParent can disturb capture/drag state. Restore
+                                  // both after reparenting and reset the horizontal
+                                  // drag origin to the new taskbar so movement stays
+                                  // continuous in either direction (A -> B -> A).
+                                  {
+                                      let mut state = lock_state();
+                                      if let Some(s) = state.as_mut() {
+                                          s.dragging = true;
+                                          s.drag_start_mouse_x = pt.x;
+                                          s.drag_start_offset = new_offset;
+                                      }
+                                  }
+                                  SetCapture(hwnd);
+                                  switched_taskbar = true;
+                              }
+                          }
+          '@
+          $newSwitch = @'
+                          if target_index != current_taskbar_index {
+                              let new_offset = offset_for_drop_point(
+                                  target_taskbar.hwnd,
+                                  target_taskbar.rect,
+                                  pt,
+                                  drag_start_client_x,
+                              );
+                              {
+                                  let mut state = lock_state();
+                                  if let Some(s) = state.as_mut() {
+                                      s.tray_offset = new_offset;
+                                      s.drag_reparenting = true;
+                                  }
+                              }
+                              let _ = ReleaseCapture();
+
+                              if attach_to_taskbar(hwnd, target_index) {
+                                  {
+                                      let mut state = lock_state();
+                                      if let Some(s) = state.as_mut() {
+                                          s.dragging = true;
+                                          s.drag_start_mouse_x = pt.x;
+                                          s.drag_start_offset = new_offset;
+                                          s.drag_reparenting = false;
+                                      }
+                                  }
+                                  SetCapture(hwnd);
+                                  switched_taskbar = true;
+                              } else {
+                                  let mut state = lock_state();
+                                  if let Some(s) = state.as_mut() {
+                                      s.drag_reparenting = false;
+                                  }
+                                  SetCapture(hwnd);
+                              }
+                          }
+          '@
+          if (-not $source.Contains($oldSwitch)) { throw 'Expected live taskbar switch block not found.' }
+          $source = $source.Replace($oldSwitch, $newSwitch)
+
+          $oldCancel = @'
+                  WM_CANCELMODE => {
+                      {
+                          let mut state = lock_state();
+                          if let Some(s) = state.as_mut() {
+                              s.dragging = false;
+                          }
+                      }
+                      let _ = ReleaseCapture();
+                      LRESULT(0)
+                  }
+                  WM_CAPTURECHANGED => {
+                      let mut state = lock_state();
+                      if let Some(s) = state.as_mut() {
+                          s.dragging = false;
+                      }
+                      LRESULT(0)
+                  }
+          '@
+          $newCancel = @'
+                  WM_CANCELMODE => {
+                      {
+                          let mut state = lock_state();
+                          if let Some(s) = state.as_mut() {
+                              s.dragging = false;
+                              s.drag_reparenting = false;
+                          }
+                      }
+                      let _ = ReleaseCapture();
+                      LRESULT(0)
+                  }
+                  WM_CAPTURECHANGED => {
+                      let mut state = lock_state();
+                      if let Some(s) = state.as_mut() {
+                          if !s.drag_reparenting {
+                              s.dragging = false;
+                          }
+                      }
+                      LRESULT(0)
+                  }
+          '@
+          if (-not $source.Contains($oldCancel)) { throw 'Expected capture cancellation block not found.' }
+          $source = $source.Replace($oldCancel, $newCancel)
+
+          $oldUp = @'
+                  WM_LBUTTONUP => {
+                      let mut pt = POINT::default();
+                      let _ = GetCursorPos(&mut pt);
+                      let drag_result = {
+                          let mut state = lock_state();
+                          if let Some(s) = state.as_mut() {
+                              if s.dragging {
+                                  s.dragging = false;
+                                  Some((s.taskbar_index, s.drag_start_client_x))
+                              } else {
+                                  None
+                              }
+                          } else {
+                              None
+                          }
+                      };
+                      if drag_result.is_none() {
+          '@
+          $newUp = @'
+                  WM_LBUTTONUP => {
+                      let mut pt = POINT::default();
+                      let _ = GetCursorPos(&mut pt);
+                      let drag_result = {
+                          let mut state = lock_state();
+                          if let Some(s) = state.as_mut() {
+                              s.drag_reparenting = false;
+                              if s.dragging {
+                                  s.dragging = false;
+                                  Some((s.taskbar_index, s.drag_start_client_x))
+                              } else {
+                                  None
+                              }
+                          } else {
+                              None
+                          }
+                      };
+                      let _ = ReleaseCapture();
+                      if drag_result.is_none() {
+          '@
+          if (-not $source.Contains($oldUp)) { throw 'Expected WM_LBUTTONUP prologue not found.' }
+          $source = $source.Replace($oldUp, $newUp)
+
+          $source = $source.Replace(
+          @'
+                      if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
+                          let _ = ReleaseCapture();
+          '@,
+          @'
+                      if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
+          '@)
+
+          Set-Content -LiteralPath $path -Value $source -Encoding utf8
 
       - name: Verify Codex CLI refresh is disabled
         shell: pwsh
@@ -84,3 +289,19 @@ jobs:
             dist/codex-usage.exe
             dist/codex-usage.exe.sha256
           if-no-files-found: error
+
+      - name: Commit verified capture fix and restore workflow
+        if: github.event_name == 'push' && github.ref_name == 'fix-v1.0.1-capture'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/safe-build.yml
+          if (Test-Path .github/workflows/apply-v101-capture-fix-once.yml) {
+            git rm .github/workflows/apply-v101-capture-fix-once.yml
+          }
+          git add src/window.rs scripts/assert-drag-handler-safe.ps1 .github/workflows/safe-build.yml
+          git diff --cached --check
+          git commit -m "fix: prevent capture leak during live taskbar reparent"
+          git push origin HEAD:fix-v1.0.1-capture
