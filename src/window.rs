@@ -2142,6 +2142,53 @@ unsafe extern "system" fn wnd_proc(
             if is_dragging {
                 let mut pt = POINT::default();
                 let _ = GetCursorPos(&mut pt);
+
+                // Detect cross-taskbar movement while the button is still held.
+                // Reparent immediately so the widget keeps following the cursor
+                // instead of stopping at the current taskbar edge until button-up.
+                let drag_target = {
+                    let state = lock_state();
+                    state
+                        .as_ref()
+                        .map(|s| (s.taskbar_index, s.drag_start_client_x))
+                };
+                let mut switched_taskbar = false;
+                if let Some((current_taskbar_index, drag_start_client_x)) = drag_target {
+                    if let Some((target_index, target_taskbar)) = taskbar_at_point(pt) {
+                        if target_index != current_taskbar_index {
+                            let new_offset = offset_for_drop_point(
+                                target_taskbar.hwnd,
+                                target_taskbar.rect,
+                                pt,
+                                drag_start_client_x,
+                            );
+                            {
+                                let mut state = lock_state();
+                                if let Some(s) = state.as_mut() {
+                                    s.tray_offset = new_offset;
+                                }
+                            }
+
+                            if attach_to_taskbar(hwnd, target_index) {
+                                // SetParent can disturb capture/drag state. Restore
+                                // both after reparenting and reset the horizontal
+                                // drag origin to the new taskbar so movement stays
+                                // continuous in either direction (A -> B -> A).
+                                {
+                                    let mut state = lock_state();
+                                    if let Some(s) = state.as_mut() {
+                                        s.dragging = true;
+                                        s.drag_start_mouse_x = pt.x;
+                                        s.drag_start_offset = new_offset;
+                                    }
+                                }
+                                SetCapture(hwnd);
+                                switched_taskbar = true;
+                            }
+                        }
+                    }
+                }
+
                 let move_target = {
                     let mut state = lock_state();
                     let s = match state.as_mut() {
@@ -2227,10 +2274,12 @@ unsafe extern "system" fn wnd_proc(
                         native_interop::move_window(hwnd_val, x, y, widget_width, widget_height);
                     }
                 }
+                if switched_taskbar {
+                    render_layered();
+                }
             }
             LRESULT(0)
-        }
-        WM_CANCELMODE => {
+        }        WM_CANCELMODE => {
             {
                 let mut state = lock_state();
                 if let Some(s) = state.as_mut() {
@@ -3429,3 +3478,4 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
+
