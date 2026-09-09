@@ -67,6 +67,7 @@ Assert-Match $window 'updater::WM_APP_UPDATE_PROGRESS\s*=>' 'Window procedure mu
 Assert-Match $window 'UpdateProgress::Checking' 'Window must notify while checking.'
 Assert-Match $window 'UpdateProgress::Downloading' 'Window must notify while downloading.'
 Assert-Match $window 'UpdateProgress::Restarting' 'Window must notify immediately before restart.'
+Assert-Match $window 'Duration::from_millis\(1200\)' 'Restart must be delayed briefly so the final Windows notification can become visible.'
 
 # Successful replacement must leave a one-shot marker so the new process can announce success.
 Assert-Match $updater 'UPDATE_SUCCESS_MARKER_SUFFIX' 'Updater must define a one-shot success marker.'
