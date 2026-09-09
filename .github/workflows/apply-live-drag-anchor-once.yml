@@ -1,0 +1,357 @@
+name: Apply Live Drag Anchor Once
+
+on:
+  push:
+    branches:
+      - feature/live-drag-anchor-v102
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply cursor-anchored drag implementation
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import re
+
+          path = Path('src/window.rs')
+          source = path.read_text(encoding='utf-8')
+
+          old_fields = '''    dragging: bool,
+              drag_start_mouse_x: i32,
+              drag_start_client_x: i32,
+              drag_start_offset: i32,
+              drag_reparenting: bool,'''
+          new_fields = '''    dragging: bool,
+              drag_anchor_logical_x: i32,
+              drag_reparenting: bool,'''
+          if old_fields not in source:
+              raise SystemExit('drag state fields not found')
+          source = source.replace(old_fields, new_fields, 1)
+
+          old_init = '''                dragging: false,
+                          drag_start_mouse_x: 0,
+                          drag_start_client_x: 0,
+                          drag_start_offset: 0,
+                          drag_reparenting: false,'''
+          new_init = '''                dragging: false,
+                          drag_anchor_logical_x: 0,
+                          drag_reparenting: false,'''
+          if old_init not in source:
+              raise SystemExit('drag state initializer not found')
+          source = source.replace(old_init, new_init, 1)
+
+          helper_pattern = re.compile(r'''fn offset_for_drop_point\(.*?\n\}\n\nfn now_unix_secs\(\)''', re.S)
+          helper_replacement = '''fn drag_anchor_px_for_dpi(logical_x: i32, dpi: u32) -> i32 {
+              let dpi = dpi.max(1);
+              (logical_x as f64 * dpi as f64 / 96.0).round() as i32
+          }
+
+          fn drag_left_from_cursor(taskbar_rect: RECT, pt: POINT, anchor_px: i32) -> i32 {
+              pt.x - taskbar_rect.left - anchor_px
+          }
+
+          fn offset_for_drag_left(taskbar_hwnd: HWND, taskbar_rect: RECT, drag_left: i32) -> i32 {
+              let tray_left = tray_left_for_taskbar(taskbar_hwnd, taskbar_rect);
+              let offset = tray_left - taskbar_rect.left - total_widget_width() - drag_left;
+              clamp_offset_for_taskbar(taskbar_hwnd, taskbar_rect, offset)
+          }
+
+          fn now_unix_secs()'''
+          source, count = helper_pattern.subn(helper_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit('offset_for_drop_point helper not replaced')
+
+          down_pattern = re.compile(r'''        WM_LBUTTONDOWN => \{.*?\n        WM_MOUSEMOVE => \{''', re.S)
+          down_replacement = '''        WM_LBUTTONDOWN => {
+              let client_x = (lparam.0 & 0xFFFF) as i16 as i32;
+              let client_y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+              if !is_drag_handle_point(client_x, client_y) {
+                  return LRESULT(0);
+              }
+
+              let window_dpi = GetDpiForWindow(hwnd);
+              let dpi = if window_dpi > 0 {
+                  window_dpi
+              } else {
+                  CURRENT_DPI.load(Ordering::Relaxed)
+              }
+              .max(1);
+              let anchor_logical_x =
+                  (client_x as f64 * 96.0 / dpi as f64).round() as i32;
+
+              let mut state = lock_state();
+              if let Some(s) = state.as_mut() {
+                  s.dragging = true;
+                  s.drag_anchor_logical_x = anchor_logical_x;
+              }
+              SetCapture(hwnd);
+              LRESULT(0)
+          }
+          WM_MOUSEMOVE => {'''
+          source, count = down_pattern.subn(down_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit('WM_LBUTTONDOWN block not replaced')
+
+          move_pattern = re.compile(r'''        WM_MOUSEMOVE => \{.*?\n        WM_CANCELMODE => \{''', re.S)
+          move_replacement = '''        WM_MOUSEMOVE => {
+              let is_dragging = {
+                  let state = lock_state();
+                  state.as_ref().map(|s| s.dragging).unwrap_or(false)
+              };
+              if is_dragging {
+                  let mut pt = POINT::default();
+                  let _ = GetCursorPos(&mut pt);
+
+                  let current_taskbar_index = {
+                      let state = lock_state();
+                      state.as_ref().map(|s| s.taskbar_index)
+                  };
+                  let mut switched_taskbar = false;
+
+                  if let Some(current_index) = current_taskbar_index {
+                      if let Some((target_index, target_taskbar)) = taskbar_at_point(pt) {
+                          if target_index != current_index {
+                              let previous_dpi = CURRENT_DPI.load(Ordering::Relaxed);
+                              let target_dpi = GetDpiForWindow(target_taskbar.hwnd);
+                              if target_dpi > 0 {
+                                  CURRENT_DPI.store(target_dpi, Ordering::Relaxed);
+                              }
+
+                              {
+                                  let mut state = lock_state();
+                                  if let Some(s) = state.as_mut() {
+                                      s.drag_reparenting = true;
+                                  }
+                              }
+                              let _ = ReleaseCapture();
+
+                              if attach_to_taskbar(hwnd, target_index) {
+                                  {
+                                      let mut state = lock_state();
+                                      if let Some(s) = state.as_mut() {
+                                          s.dragging = true;
+                                          s.drag_reparenting = false;
+                                      }
+                                  }
+                                  SetCapture(hwnd);
+                                  switched_taskbar = true;
+                              } else {
+                                  CURRENT_DPI.store(previous_dpi, Ordering::Relaxed);
+                                  let mut state = lock_state();
+                                  if let Some(s) = state.as_mut() {
+                                      s.drag_reparenting = false;
+                                  }
+                                  SetCapture(hwnd);
+                              }
+                          }
+                      }
+                  }
+
+                  let drag_context = {
+                      let state = lock_state();
+                      state.as_ref().and_then(|s| {
+                          s.taskbar_hwnd
+                              .map(|taskbar_hwnd| (taskbar_hwnd, s.drag_anchor_logical_x))
+                      })
+                  };
+
+                  if let Some((taskbar_hwnd, anchor_logical_x)) = drag_context {
+                      if let Some(taskbar_rect) = native_interop::get_taskbar_rect(taskbar_hwnd) {
+                          let dpi = GetDpiForWindow(taskbar_hwnd);
+                          if dpi > 0 {
+                              CURRENT_DPI.store(dpi, Ordering::Relaxed);
+                          }
+                          let effective_dpi = CURRENT_DPI.load(Ordering::Relaxed).max(1);
+                          let anchor_px = drag_anchor_px_for_dpi(anchor_logical_x, effective_dpi);
+                          let drag_left = drag_left_from_cursor(taskbar_rect, pt, anchor_px);
+                          let taskbar_height = taskbar_rect.bottom - taskbar_rect.top;
+                          let small_mode = is_small_taskbar_height(taskbar_height);
+
+                          let (widget_width, widget_height, small_mode_changed) = {
+                              let mut state = lock_state();
+                              let s = match state.as_mut() {
+                                  Some(s) => s,
+                                  None => return LRESULT(0),
+                              };
+                              let changed = s.small_taskbar_mode != small_mode;
+                              if changed {
+                                  s.small_taskbar_mode = small_mode;
+                                  if small_mode {
+                                      s.small_show_weekly = false;
+                                  }
+                              }
+                              (
+                                  total_widget_width_for_state(s),
+                                  widget_height_for_state(s),
+                                  changed,
+                              )
+                          };
+                          let y = compute_anchor_y(
+                              taskbar_rect.top,
+                              taskbar_height,
+                              widget_height,
+                          ) - taskbar_rect.top;
+
+                          // Pointer alignment is authoritative while dragging. The taskbar
+                          // clips any temporary overhang; docked bounds are applied on button-up.
+                          native_interop::move_window(
+                              hwnd,
+                              drag_left,
+                              y,
+                              widget_width,
+                              widget_height,
+                          );
+
+                          if switched_taskbar || small_mode_changed {
+                              render_layered();
+                          }
+                      }
+                  }
+              }
+              LRESULT(0)
+          }
+          WM_CANCELMODE => {'''
+          source, count = move_pattern.subn(move_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit('WM_MOUSEMOVE block not replaced')
+
+          up_pattern = re.compile(r'''        WM_LBUTTONUP => \{.*?\n        WM_RBUTTONUP => \{''', re.S)
+          up_replacement = '''        WM_LBUTTONUP => {
+              let mut pt = POINT::default();
+              let _ = GetCursorPos(&mut pt);
+              let drag_result = {
+                  let mut state = lock_state();
+                  if let Some(s) = state.as_mut() {
+                      s.drag_reparenting = false;
+                      let was_dragging = s.dragging;
+                      s.dragging = false;
+                      if was_dragging {
+                          Some((s.taskbar_index, s.drag_anchor_logical_x))
+                      } else {
+                          None
+                      }
+                  } else {
+                      None
+                  }
+              };
+              let _ = ReleaseCapture();
+
+              if drag_result.is_none() {
+                  let client_x = (lparam.0 & 0xFFFF) as i16 as i32;
+                  let client_y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+                  if !is_drag_handle_point(client_x, client_y) {
+                      let toggled = {
+                          let mut state = lock_state();
+                          if let Some(s) = state.as_mut() {
+                              if s.small_taskbar_mode {
+                                  s.small_show_weekly = !s.small_show_weekly;
+                                  true
+                              } else {
+                                  false
+                              }
+                          } else {
+                              false
+                          }
+                      };
+                      if toggled {
+                          render_layered();
+                      }
+                  }
+              }
+
+              if let Some((current_taskbar_index, anchor_logical_x)) = drag_result {
+                  if let Some((target_index, _)) = taskbar_at_point(pt) {
+                      if target_index != current_taskbar_index {
+                          let _ = attach_to_taskbar(hwnd, target_index);
+                      }
+                  }
+
+                  refresh_dpi();
+                  let final_taskbar = {
+                      let state = lock_state();
+                      state.as_ref().and_then(|s| s.taskbar_hwnd)
+                  };
+                  if let Some(taskbar_hwnd) = final_taskbar {
+                      if let Some(taskbar_rect) = native_interop::get_taskbar_rect(taskbar_hwnd) {
+                          let dpi = GetDpiForWindow(taskbar_hwnd);
+                          if dpi > 0 {
+                              CURRENT_DPI.store(dpi, Ordering::Relaxed);
+                          }
+                          let effective_dpi = CURRENT_DPI.load(Ordering::Relaxed).max(1);
+                          let anchor_px = drag_anchor_px_for_dpi(anchor_logical_x, effective_dpi);
+                          let final_drag_left = drag_left_from_cursor(taskbar_rect, pt, anchor_px);
+                          let new_offset =
+                              offset_for_drag_left(taskbar_hwnd, taskbar_rect, final_drag_left);
+                          {
+                              let mut state = lock_state();
+                              if let Some(s) = state.as_mut() {
+                                  s.tray_offset = new_offset;
+                              }
+                          }
+                          position_at_taskbar();
+                          render_layered();
+                      }
+                  }
+                  save_state_settings();
+              }
+              LRESULT(0)
+          }
+          WM_RBUTTONUP => {'''
+          source, count = up_pattern.subn(up_replacement, source, count=1)
+          if count != 1:
+              raise SystemExit('WM_LBUTTONUP block not replaced')
+
+          path.write_text(source, encoding='utf-8')
+
+          capture = Path('scripts/assert-drag-handler-safe.ps1')
+          test_source = capture.read_text(encoding='utf-8')
+          old = '''if ($moveBody -notmatch 'offset_for_drop_point\\s*\\(') {
+              throw 'WM_MOUSEMOVE must preserve the cursor grab point when switching taskbars.'
+          }'''
+          new = '''if ($moveBody -notmatch 'drag_left_from_cursor\\s*\\(') {
+              throw 'WM_MOUSEMOVE must preserve the cursor grab point with cursor-anchored geometry when switching taskbars.'
+          }'''
+          if old not in test_source:
+              raise SystemExit('capture regression assertion not found')
+          capture.write_text(test_source.replace(old, new, 1), encoding='utf-8')
+          '@ | Set-Content -Encoding utf8 apply_live_drag_anchor.py
+          python apply_live_drag_anchor.py
+          Remove-Item apply_live_drag_anchor.py
+          cargo fmt
+
+      - name: Verify drag regression contracts
+        shell: pwsh
+        run: |
+          ./scripts/assert-drag-handler-safe.ps1
+          ./scripts/assert-live-drag-anchor.ps1
+
+      - name: Run Rust tests
+        run: cargo test
+
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Build release-mode test binary
+        run: cargo build --release
+
+      - name: Commit implementation only to feature branch
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-live-drag-anchor-once.yml
+          git add src/window.rs scripts/assert-drag-handler-safe.ps1
+          git diff --cached --check
+          git commit -m "feat: keep drag handle anchored across taskbars"
+          git push origin HEAD:feature/live-drag-anchor-v102
