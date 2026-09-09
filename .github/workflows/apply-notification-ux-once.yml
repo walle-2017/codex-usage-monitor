@@ -1,5 +1,6 @@
 name: Apply Concise Notification UX Once
 
+# Retry after tightening the Rust raw PowerShell template matcher.
 on:
   push:
     branches:
