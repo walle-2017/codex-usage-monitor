@@ -2,8 +2,8 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
 use windows::Win32::UI::Shell::{
-    ExtractIconExW, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_WARNING,
-    NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    ExtractIconExW, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_NONE,
+    NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -63,16 +63,38 @@ fn load_embedded_app_icon() -> HICON {
     }
 }
 
-pub fn notify_balloon(hwnd: HWND, _kind: TrayIconKind, title: &str, message: &str) {
+pub fn notify_info(hwnd: HWND, kind: TrayIconKind, title: &str, message: &str) {
+    notify_balloon(hwnd, kind, title, message, false);
+}
+
+pub fn notify_warning(hwnd: HWND, kind: TrayIconKind, title: &str, message: &str) {
+    notify_balloon(hwnd, kind, title, message, true);
+}
+
+fn notify_balloon(hwnd: HWND, _kind: TrayIconKind, title: &str, message: &str, warning: bool) {
     unsafe {
         let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
         nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
         nid.hWnd = hwnd;
         nid.uID = APP_TRAY_ICON_ID;
         nid.uFlags = NIF_INFO;
-        nid.dwInfoFlags = NIIF_WARNING;
+        nid.dwInfoFlags = if warning { NIIF_WARNING } else { NIIF_NONE };
         copy_wide(title, &mut nid.szInfoTitle);
         copy_wide(message, &mut nid.szInfo);
+        let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+    }
+}
+
+pub fn clear_notification(hwnd: HWND) {
+    unsafe {
+        let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
+        nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        nid.hWnd = hwnd;
+        nid.uID = APP_TRAY_ICON_ID;
+        nid.uFlags = NIF_INFO;
+        nid.dwInfoFlags = NIIF_NONE;
+        copy_wide("", &mut nid.szInfoTitle);
+        copy_wide("", &mut nid.szInfo);
         let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
     }
 }

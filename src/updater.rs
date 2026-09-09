@@ -3,7 +3,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,10 +15,8 @@ use crate::diagnose;
 
 const LATEST_RELEASE_URL: &str =
     "https://github.com/walle-2017/codex-usage-monitor/releases/latest";
-const RELEASE_TAG_PREFIX: &str =
-    "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v";
-const RELEASE_TAG_RELATIVE_PREFIX: &str =
-    "/walle-2017/codex-usage-monitor/releases/tag/v";
+const RELEASE_TAG_PREFIX: &str = "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v";
+const RELEASE_TAG_RELATIVE_PREFIX: &str = "/walle-2017/codex-usage-monitor/releases/tag/v";
 const RELEASE_ASSET_PREFIX: &str =
     "https://github.com/walle-2017/codex-usage-monitor/releases/download/";
 const EXE_ASSET_NAME: &str = "codex-usage.exe";
@@ -26,12 +24,18 @@ const CHECKSUM_ASSET_NAME: &str = "codex-usage.exe.sha256";
 const UPDATE_TIMEOUT_SECS: u64 = 30;
 const HELPER_WAIT_SECS: u64 = 60;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-const UPDATE_SUCCESS_MARKER_SUFFIX: &str = "update-success";
+const UPDATE_CHECK_NOTIFY_DELAY_MS: u64 = 800;
+const UPDATE_SUCCESS_ARG_PREFIX: &str = "--codex-usage-updated-to=";
+const UPDATE_STAGE_IDLE: u8 = 0;
+const UPDATE_STAGE_CHECKING: u8 = 1;
+const UPDATE_STAGE_UPDATING: u8 = 2;
 
 pub(crate) const WM_APP_UPDATE_RESULT: u32 = WM_APP + 21;
 pub(crate) const WM_APP_UPDATE_PROGRESS: u32 = WM_APP + 22;
 
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+static UPDATE_STAGE: AtomicU8 = AtomicU8::new(UPDATE_STAGE_IDLE);
+static UPDATE_SUCCESS_ARG_CONSUMED: AtomicBool = AtomicBool::new(false);
 static UPDATE_RESULT: Mutex<Option<UpdateUiResult>> = Mutex::new(None);
 static UPDATE_PROGRESS: Mutex<VecDeque<UpdateProgress>> = Mutex::new(VecDeque::new());
 static LAST_ERROR_DETAIL: Mutex<String> = Mutex::new(String::new());
@@ -57,8 +61,7 @@ pub(crate) enum UpdateUiResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UpdateProgress {
     Checking,
-    Downloading { version: String },
-    Restarting { version: String },
+    Updating { version: String },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -83,9 +86,7 @@ impl Version {
             patch,
         })
     }
-
 }
-
 
 #[derive(Clone, Debug)]
 struct ReleaseUpdate {
@@ -121,9 +122,13 @@ fn redact_url_userinfo(value: &str) -> String {
         while let Some(relative) = output[search_from..].find(scheme) {
             let start = search_from + relative + scheme.len();
             let tail = &output[start..];
-            let Some(at_relative) = tail.find('@') else { break };
+            let Some(at_relative) = tail.find('@') else {
+                break;
+            };
             let slash_relative = tail.find('/').unwrap_or(usize::MAX);
-            if at_relative > slash_relative { break; }
+            if at_relative > slash_relative {
+                break;
+            }
             let userinfo = &tail[..at_relative];
             if userinfo.contains(':') {
                 output.replace_range(start..start + at_relative, "<redacted>");
@@ -137,7 +142,9 @@ fn redact_url_userinfo(value: &str) -> String {
 }
 
 fn set_error_detail(detail: impl Into<String>) {
-    let mut stored = LAST_ERROR_DETAIL.lock().unwrap_or_else(|error| error.into_inner());
+    let mut stored = LAST_ERROR_DETAIL
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     *stored = detail.into();
 }
 
@@ -164,7 +171,10 @@ fn visible_error_detail(error: &UpdateError) -> String {
     }
 }
 
-fn diagnostic_body_summary(content_type: Option<&str>, body: &str) -> (Option<String>, Option<String>) {
+fn diagnostic_body_summary(
+    content_type: Option<&str>,
+    body: &str,
+) -> (Option<String>, Option<String>) {
     let sanitized = safe_detail(body);
     let is_json = content_type
         .map(|value| value.to_ascii_lowercase().contains("json"))
@@ -172,7 +182,12 @@ fn diagnostic_body_summary(content_type: Option<&str>, body: &str) -> (Option<St
     let body_message = if is_json {
         serde_json::from_str::<serde_json::Value>(body)
             .ok()
-            .and_then(|value| value.get("message").and_then(|message| message.as_str()).map(safe_detail))
+            .and_then(|value| {
+                value
+                    .get("message")
+                    .and_then(|message| message.as_str())
+                    .map(safe_detail)
+            })
     } else {
         None
     };
@@ -198,7 +213,11 @@ fn github_status_detail(status: u16, response: ureq::Response) -> String {
     let mut parts = vec![format!("HTTP {status}")];
     for name in header_names {
         if let Some(value) = response.header(name) {
-            parts.push(format!("{}={}", name.to_ascii_lowercase(), safe_detail(value)));
+            parts.push(format!(
+                "{}={}",
+                name.to_ascii_lowercase(),
+                safe_detail(value)
+            ));
         }
     }
 
@@ -222,7 +241,9 @@ fn ureq_error_detail(error: ureq::Error) -> String {
 }
 
 fn lock_result() -> MutexGuard<'static, Option<UpdateUiResult>> {
-    UPDATE_RESULT.lock().unwrap_or_else(|error| error.into_inner())
+    UPDATE_RESULT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 fn lock_progress() -> MutexGuard<'static, VecDeque<UpdateProgress>> {
@@ -255,31 +276,39 @@ pub(crate) fn start_update(hwnd: HWND) -> bool {
     }
 
     let hwnd_raw = hwnd.0 as isize;
-    post_progress(hwnd_raw, UpdateProgress::Checking);
+    lock_progress().clear();
+    UPDATE_STAGE.store(UPDATE_STAGE_CHECKING, Ordering::Release);
+    let delayed_hwnd_raw = hwnd_raw;
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(UPDATE_CHECK_NOTIFY_DELAY_MS));
+        if UPDATE_IN_PROGRESS.load(Ordering::Acquire)
+            && UPDATE_STAGE.load(Ordering::Acquire) == UPDATE_STAGE_CHECKING
+        {
+            post_progress(delayed_hwnd_raw, UpdateProgress::Checking);
+        }
+    });
+
     std::thread::spawn(move || {
         let ui_result = match prepare_update(hwnd_raw) {
             Ok(UpdateOutcome::Current { version }) => UpdateUiResult::Current { version },
-            Ok(UpdateOutcome::Ready(package)) => {
-                let version = package.version.clone();
-                match launch_prepared_update(package) {
-                    Ok(()) => {
-                        post_progress(hwnd_raw, UpdateProgress::Restarting { version });
-                        UpdateUiResult::ReadyToRestart
-                    },
-                    Err(error) => {
-                        let detail = visible_error_detail(&error);
-                        diagnose::log(format!("updater: helper failed error={error:?} detail={detail}"));
-                        UpdateUiResult::Failed { error, detail }
-                    },
+            Ok(UpdateOutcome::Ready(package)) => match launch_prepared_update(package) {
+                Ok(()) => UpdateUiResult::ReadyToRestart,
+                Err(error) => {
+                    let detail = visible_error_detail(&error);
+                    diagnose::log(format!(
+                        "updater: helper failed error={error:?} detail={detail}"
+                    ));
+                    UpdateUiResult::Failed { error, detail }
                 }
             },
             Err(error) => {
                 let detail = visible_error_detail(&error);
                 diagnose::log(format!("updater: failed error={error:?} detail={detail}"));
                 UpdateUiResult::Failed { error, detail }
-            },
+            }
         };
 
+        UPDATE_STAGE.store(UPDATE_STAGE_IDLE, Ordering::Release);
         *lock_result() = Some(ui_result);
         let target_hwnd = HWND(hwnd_raw as *mut _);
         unsafe {
@@ -303,7 +332,10 @@ fn parse_release_redirect(location: &str) -> Result<(Version, String), UpdateErr
         .strip_prefix(RELEASE_TAG_PREFIX)
         .or_else(|| location.strip_prefix(RELEASE_TAG_RELATIVE_PREFIX))
         .ok_or_else(|| {
-            set_error_detail(format!("unexpected latest Release redirect: {}", safe_detail(location)));
+            set_error_detail(format!(
+                "unexpected latest Release redirect: {}",
+                safe_detail(location)
+            ));
             UpdateError::InvalidRelease
         })?;
 
@@ -314,12 +346,18 @@ fn parse_release_redirect(location: &str) -> Result<(Version, String), UpdateErr
         || tag.contains('-')
         || tag.contains('+')
     {
-        set_error_detail(format!("invalid latest Release tag redirect: {}", safe_detail(location)));
+        set_error_detail(format!(
+            "invalid latest Release tag redirect: {}",
+            safe_detail(location)
+        ));
         return Err(UpdateError::InvalidRelease);
     }
 
     let version = Version::parse(tag).ok_or_else(|| {
-        set_error_detail(format!("invalid latest Release version: {}", safe_detail(tag)));
+        set_error_detail(format!(
+            "invalid latest Release version: {}",
+            safe_detail(tag)
+        ));
         UpdateError::InvalidRelease
     })?;
     let version_text = format!("{}.{}.{}", version.major, version.minor, version.patch);
@@ -373,14 +411,19 @@ fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
 
 fn prepare_update(hwnd_raw: isize) -> Result<UpdateOutcome, UpdateError> {
     let current_text = env!("CARGO_PKG_VERSION");
-    diagnose::log(format!("updater: checking latest Release current={current_text}"));
+    diagnose::log(format!(
+        "updater: checking latest Release current={current_text}"
+    ));
     let current = Version::parse(current_text).ok_or(UpdateError::InvalidRelease)?;
 
     let discovery_agent = build_discovery_agent()?;
     let release_response = request_builder(&discovery_agent, LATEST_RELEASE_URL)
         .call()
         .map_err(|error| {
-            let detail = format!("GitHub latest Release redirect request failed: {}", ureq_error_detail(error));
+            let detail = format!(
+                "GitHub latest Release redirect request failed: {}",
+                ureq_error_detail(error)
+            );
             set_error_detail(detail.clone());
             diagnose::log(format!("updater: {detail}"));
             UpdateError::CheckFailed
@@ -409,9 +452,10 @@ fn prepare_update(hwnd_raw: isize) -> Result<UpdateOutcome, UpdateError> {
         });
     }
 
+    UPDATE_STAGE.store(UPDATE_STAGE_UPDATING, Ordering::Release);
     post_progress(
         hwnd_raw,
-        UpdateProgress::Downloading {
+        UpdateProgress::Updating {
             version: latest_text.clone(),
         },
     );
@@ -440,7 +484,10 @@ fn prepare_downloaded_package(
     let staged_exe = staging_dir.join(EXE_ASSET_NAME);
     let checksum_path = staging_dir.join(CHECKSUM_ASSET_NAME);
 
-    diagnose::log(format!("updater: update available version={}", update.version));
+    diagnose::log(format!(
+        "updater: update available version={}",
+        update.version
+    ));
     download_to(agent, &update.executable_url, &staged_exe)?;
     download_to(agent, &update.checksum_url, &checksum_path)?;
 
@@ -462,7 +509,10 @@ fn prepare_downloaded_package(
     let prepared_new = sibling_path(&target, "new");
     let _ = fs::remove_file(&prepared_new);
     fs::copy(&staged_exe, &prepared_new).map_err(|error| {
-        diagnose::log_error("updater: unable to stage replacement beside executable", error);
+        diagnose::log_error(
+            "updater: unable to stage replacement beside executable",
+            error,
+        );
         UpdateError::TargetNotWritable
     })?;
     if let Err(error) = verify_sha256(&prepared_new, &expected) {
@@ -471,7 +521,10 @@ fn prepare_downloaded_package(
     }
 
     let working_dir = std::env::current_dir().unwrap_or_else(|_| target_parent.to_path_buf());
-    let relaunch_args = std::env::args().skip(1).collect();
+    let relaunch_args = std::env::args()
+        .skip(1)
+        .filter(|arg| !is_internal_update_arg(arg))
+        .collect();
 
     Ok(UpdatePackage {
         version: update.version,
@@ -488,7 +541,10 @@ fn download_to(agent: &ureq::Agent, url: &str, destination: &Path) -> Result<(),
         return Err(UpdateError::InvalidRelease);
     }
     let response = request_builder(agent, url).call().map_err(|error| {
-        let detail = format!("Release asset download failed: {}", ureq_error_detail(error));
+        let detail = format!(
+            "Release asset download failed: {}",
+            ureq_error_detail(error)
+        );
         set_error_detail(detail.clone());
         diagnose::log(format!("updater: {detail}"));
         UpdateError::DownloadFailed
@@ -542,7 +598,9 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<(), UpdateError> {
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
-        set_error_detail(format!("SHA256 mismatch: expected {expected}, actual {actual}"));
+        set_error_detail(format!(
+            "SHA256 mismatch: expected {expected}, actual {actual}"
+        ));
         Err(UpdateError::ChecksumMismatch)
     }
 }
@@ -552,10 +610,7 @@ fn unique_staging_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    std::env::temp_dir().join(format!(
-        "codex-usage-update-{}-{nonce}",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(format!("codex-usage-update-{}-{nonce}", std::process::id()))
 }
 
 fn preflight_writable(directory: &Path) -> Result<(), UpdateError> {
@@ -577,7 +632,10 @@ fn preflight_writable(directory: &Path) -> Result<(), UpdateError> {
         .and_then(|mut file| file.write_all(b"probe"));
     let _ = fs::remove_file(&probe);
     result.map_err(|error| {
-        let detail = format!("executable directory is not writable: {}", safe_detail(&error));
+        let detail = format!(
+            "executable directory is not writable: {}",
+            safe_detail(&error)
+        );
         set_error_detail(detail.clone());
         diagnose::log(format!("updater: {detail}"));
         UpdateError::TargetNotWritable
@@ -588,30 +646,34 @@ fn sibling_path(target: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(format!("{}.{}", target.to_string_lossy(), suffix))
 }
 
-fn success_marker_path(target: &Path) -> PathBuf {
-    sibling_path(target, UPDATE_SUCCESS_MARKER_SUFFIX)
+pub(crate) fn is_internal_update_arg(arg: &str) -> bool {
+    arg.starts_with(UPDATE_SUCCESS_ARG_PREFIX)
 }
 
-fn consume_success_marker(marker: &Path, current_version: &str) -> Option<String> {
-    let value = fs::read_to_string(marker).ok()?;
-    let _ = fs::remove_file(marker);
-    let version = value.trim();
-    if Version::parse(version).is_none() || version != current_version {
-        diagnose::log(format!(
-            "updater: ignored stale or invalid success marker version={}",
-            safe_detail(version)
-        ));
+fn successful_update_version_from_iter<I>(args: I, current_version: &str) -> Option<String>
+where
+    I: IntoIterator<Item = String>,
+{
+    args.into_iter().find_map(|arg| {
+        let version = arg.strip_prefix(UPDATE_SUCCESS_ARG_PREFIX)?;
+        if Version::parse(version).is_some() && version == current_version {
+            Some(version.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+pub(crate) fn successful_update_version_from_args() -> Option<String> {
+    if UPDATE_SUCCESS_ARG_CONSUMED.swap(true, Ordering::AcqRel) {
         return None;
     }
-    Some(version.to_string())
-}
-
-pub(crate) fn take_successful_update_version() -> Option<String> {
-    let target = std::env::current_exe().ok()?;
-    let marker = success_marker_path(&target);
-    let version = consume_success_marker(&marker, env!("CARGO_PKG_VERSION"));
+    let version =
+        successful_update_version_from_iter(std::env::args().skip(1), env!("CARGO_PKG_VERSION"));
     if let Some(version) = version.as_ref() {
-        diagnose::log(format!("updater: successful update marker consumed version={version}"));
+        diagnose::log(format!(
+            "updater: successful update argument consumed version={version}"
+        ));
     }
     version
 }
@@ -625,7 +687,7 @@ fn render_helper(package: &UpdatePackage, old_process_id: u32) -> String {
     let prepared_new = ps_single_quote(&package.prepared_new.to_string_lossy());
     let old = ps_single_quote(&sibling_path(&package.target, "old").to_string_lossy());
     let staging = ps_single_quote(&package.staging_dir.to_string_lossy());
-    let success_marker = ps_single_quote(&success_marker_path(&package.target).to_string_lossy());
+    let success_arg = ps_single_quote(&format!("{UPDATE_SUCCESS_ARG_PREFIX}{}", package.version));
     let version = ps_single_quote(&package.version);
     let working_dir = ps_single_quote(&package.working_dir.to_string_lossy());
     let args = if package.relaunch_args.is_empty() {
@@ -650,10 +712,11 @@ $Target = {target}
 $New = {prepared_new}
 $Old = {old}
 $Staging = {staging}
-$SuccessMarker = {success_marker}
+$SuccessArg = {success_arg}
 $Version = {version}
 $WorkingDirectory = {working_dir}
 $RelaunchArgs = {args}
+$LaunchArgs = @($RelaunchArgs) + @($SuccessArg)
 $UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsage'
 $Deadline = (Get-Date).AddSeconds({helper_wait})
 
@@ -665,7 +728,6 @@ while (Get-Process -Id $OldProcessId -ErrorAction SilentlyContinue) {{
 $MovedOld = $false
 $InstalledNew = $false
 try {{
-    Remove-Item -LiteralPath $SuccessMarker -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $Old -Force -ErrorAction SilentlyContinue
     if (-not (Test-Path -LiteralPath $Target -PathType Leaf)) {{
         throw 'Current executable disappeared before replacement.'
@@ -702,17 +764,10 @@ try {{
         # Registry metadata is best-effort and must not block a valid portable update.
     }}
 
-    Set-Content -LiteralPath $SuccessMarker -Value $Version -Encoding ascii
-
     try {{
-        if ($RelaunchArgs.Count -gt 0) {{
-            Start-Process -FilePath $Target -ArgumentList $RelaunchArgs -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
-        }} else {{
-            Start-Process -FilePath $Target -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
-        }}
+        Start-Process -FilePath $Target -ArgumentList $LaunchArgs -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
     }} catch {{
-        Remove-Item -LiteralPath $SuccessMarker -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $Old -PathType Leaf) {{
             Move-Item -LiteralPath $Old -Destination $Target -Force
             $MovedOld = $false
@@ -724,7 +779,6 @@ try {{
     Remove-Item -LiteralPath $Old -Force -ErrorAction SilentlyContinue
     $MovedOld = $false
 }} catch {{
-    Remove-Item -LiteralPath $SuccessMarker -Force -ErrorAction SilentlyContinue
     if ($InstalledNew -and (Test-Path -LiteralPath $Target -PathType Leaf)) {{
         Remove-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
     }}
@@ -754,9 +808,12 @@ fn launch_prepared_update(package: UpdatePackage) -> Result<(), UpdateError> {
         Ok(_) => {
             diagnose::log("updater: replacement helper launched; application will restart");
             Ok(())
-        },
+        }
         Err(error) => {
-            let detail = format!("unable to launch replacement helper: {}", safe_detail(&error));
+            let detail = format!(
+                "unable to launch replacement helper: {}",
+                safe_detail(&error)
+            );
             set_error_detail(detail.clone());
             diagnose::log(format!("updater: {detail}"));
             cleanup_failed_package(&package);
@@ -793,30 +850,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn success_marker_is_consumed_only_for_current_version() {
-        let root = unique_staging_dir();
-        fs::create_dir_all(&root).unwrap();
-        let target = root.join("codex-usage.exe");
-        let marker = success_marker_path(&target);
-        fs::write(&marker, "1.2.3\n").unwrap();
+    fn success_argument_is_accepted_only_for_current_version() {
         assert_eq!(
-            consume_success_marker(&marker, "1.2.3"),
+            successful_update_version_from_iter(
+                vec!["--codex-usage-updated-to=1.2.3".to_string()],
+                "1.2.3"
+            ),
             Some("1.2.3".to_string())
         );
-        assert!(!marker.exists());
-        let _ = fs::remove_dir_all(root);
+        assert_eq!(
+            successful_update_version_from_iter(
+                vec!["--codex-usage-updated-to=9.9.9".to_string()],
+                "1.2.3"
+            ),
+            None
+        );
     }
 
     #[test]
-    fn stale_success_marker_is_removed_without_notification() {
-        let root = unique_staging_dir();
-        fs::create_dir_all(&root).unwrap();
-        let target = root.join("codex-usage.exe");
-        let marker = success_marker_path(&target);
-        fs::write(&marker, "9.9.9").unwrap();
-        assert_eq!(consume_success_marker(&marker, "1.2.3"), None);
-        assert!(!marker.exists());
-        let _ = fs::remove_dir_all(root);
+    fn internal_success_argument_is_identified_for_filtering() {
+        assert!(is_internal_update_arg("--codex-usage-updated-to=1.2.3"));
+        assert!(!is_internal_update_arg("--diagnose"));
     }
 
     #[test]
@@ -829,7 +883,6 @@ mod tests {
         assert_eq!(Version::parse("1.0.2"), Version::parse("1.0.2"));
     }
 
-
     #[test]
     fn release_redirect_accepts_absolute_and_relative_fork_tags() {
         let (absolute, text) = parse_release_redirect(
@@ -839,10 +892,8 @@ mod tests {
         assert_eq!(absolute, Version::parse("1.0.10").unwrap());
         assert_eq!(text, "1.0.10");
 
-        let (relative, text) = parse_release_redirect(
-            "/walle-2017/codex-usage-monitor/releases/tag/v1.0.3",
-        )
-        .unwrap();
+        let (relative, text) =
+            parse_release_redirect("/walle-2017/codex-usage-monitor/releases/tag/v1.0.3").unwrap();
         assert_eq!(relative, Version::parse("1.0.3").unwrap());
         assert_eq!(text, "1.0.3");
     }
@@ -922,7 +973,10 @@ mod tests {
 
     #[test]
     fn checksum_parser_rejects_invalid_or_ambiguous_text() {
-        assert_eq!(parse_sha256("abc").unwrap_err(), UpdateError::InvalidChecksum);
+        assert_eq!(
+            parse_sha256("abc").unwrap_err(),
+            UpdateError::InvalidChecksum
+        );
         let two = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         assert_eq!(parse_sha256(two).unwrap_err(), UpdateError::InvalidChecksum);
     }

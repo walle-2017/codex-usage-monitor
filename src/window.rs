@@ -195,7 +195,10 @@ fn relaunch_self() {
         }
     };
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|arg| !updater::is_internal_update_arg(arg))
+        .collect();
     match std::process::Command::new(exe)
         .args(&args)
         .env(ENV_RELAUNCH, "1")
@@ -471,6 +474,18 @@ fn collect_low_quota_alerts(state: &mut AppState, data: &AppUsageData) -> Vec<Qu
     alerts
 }
 
+fn notify_quota_alerts(hwnd: HWND, alerts: &[QuotaAlert]) {
+    let Some(first) = alerts.first() else {
+        return;
+    };
+    let message = alerts
+        .iter()
+        .map(|alert| alert.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    tray_icon::notify_info(hwnd, first.kind, &first.title, &message);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn append_provider_alerts(
     alerts: &mut Vec<QuotaAlert>,
@@ -539,17 +554,17 @@ fn append_quota_alert(
     let reset = format_precise_reset_time(section.resets_at);
     let (title, message) = if language == LanguageId::SimplifiedChinese {
         (
-            format!("{provider_label} 额度提醒"),
+            format!("{provider_label} 额度"),
             format!(
-                "{window_label}额度仅剩 {remaining}%，重置时间：{}",
+                "{window_label} 剩余 {remaining}% · {} 重置",
                 reset.unwrap_or_else(|| "未知".to_string())
             ),
         )
     } else {
         (
-            format!("{provider_label} quota alert"),
+            format!("{provider_label} quota"),
             format!(
-                "{window_label} quota has {remaining}% remaining. Reset: {}",
+                "{window_label} {remaining}% remaining · reset {}",
                 reset.unwrap_or_else(|| "unknown".to_string())
             ),
         )
@@ -1260,10 +1275,10 @@ pub fn run() {
         // Initial render via UpdateLayeredWindow (for embedded) or InvalidateRect (fallback)
         render_layered();
 
-        if let Some(version) = updater::take_successful_update_version() {
+        if let Some(version) = updater::successful_update_version_from_args() {
             let strings = language.strings();
             let message = format!("{} v{}", strings.update_success, version);
-            tray_icon::notify_balloon(
+            tray_icon::notify_info(
                 hwnd,
                 tray_icon::TrayIconKind::Codex,
                 strings.update_title,
@@ -1656,9 +1671,7 @@ fn do_poll(send_hwnd: SendHwnd) {
                 s.auth_watch_snapshot.clear();
             }
             drop(state);
-            for alert in &quota_alerts {
-                tray_icon::notify_balloon(hwnd, alert.kind, &alert.title, &alert.message);
-            }
+            notify_quota_alerts(hwnd, &quota_alerts);
             if !quota_alerts.is_empty() {
                 save_state_settings();
             }
@@ -1721,7 +1734,7 @@ fn do_poll(send_hwnd: SendHwnd) {
             if notify_auth_error {
                 let state = lock_state();
                 if let Some(s) = state.as_ref() {
-                    tray_icon::notify_balloon(
+                    tray_icon::notify_warning(
                         hwnd,
                         tray_icon::TrayIconKind::Codex,
                         s.language.strings().codex_token_expired_title,
@@ -2378,14 +2391,12 @@ unsafe extern "system" fn wnd_proc(
                 };
                 let message = match progress {
                     updater::UpdateProgress::Checking => strings.update_checking.to_string(),
-                    updater::UpdateProgress::Downloading { version } => {
-                        format!("{} v{}", strings.update_downloading, version)
-                    }
-                    updater::UpdateProgress::Restarting { version } => {
-                        format!("{} v{}…", strings.update_restarting, version)
+                    updater::UpdateProgress::Updating { version } => {
+                        tray_icon::clear_notification(hwnd);
+                        format!("{} v{}…", strings.update_downloading, version)
                     }
                 };
-                tray_icon::notify_balloon(
+                tray_icon::notify_info(
                     hwnd,
                     tray_icon::TrayIconKind::Codex,
                     strings.update_title,
@@ -2405,8 +2416,9 @@ unsafe extern "system" fn wnd_proc(
                                 .map(|s| s.language.strings())
                                 .unwrap_or_else(|| LanguageId::English.strings())
                         };
+                        tray_icon::clear_notification(hwnd);
                         let message = format!("{} v{}", strings.update_current, version);
-                        tray_icon::notify_balloon(
+                        tray_icon::notify_info(
                             hwnd,
                             tray_icon::TrayIconKind::Codex,
                             strings.update_title,
@@ -2441,7 +2453,8 @@ unsafe extern "system" fn wnd_proc(
                         } else {
                             format!("{message}: {detail}")
                         };
-                        tray_icon::notify_balloon(
+                        tray_icon::clear_notification(hwnd);
+                        tray_icon::notify_warning(
                             hwnd,
                             tray_icon::TrayIconKind::Codex,
                             strings.update_title,
@@ -2449,20 +2462,8 @@ unsafe extern "system" fn wnd_proc(
                         );
                     }
                     updater::UpdateUiResult::ReadyToRestart => {
-                        // Give the Windows notification a brief moment to become visible
-                        // before the helper needs this process to exit for replacement.
-                        let close_hwnd = SendHwnd::from_hwnd(hwnd);
-                        std::thread::spawn(move || {
-                            std::thread::sleep(Duration::from_millis(1200));
-                            unsafe {
-                                let _ = PostMessageW(
-                                    close_hwnd.to_hwnd(),
-                                    WM_CLOSE,
-                                    WPARAM(0),
-                                    LPARAM(0),
-                                );
-                            }
-                        });
+                        tray_icon::clear_notification(hwnd);
+                        let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
                     }
                 }
             }
@@ -2581,9 +2582,7 @@ unsafe extern "system" fn wnd_proc(
                             Vec::new()
                         }
                     };
-                    for alert in &alerts {
-                        tray_icon::notify_balloon(hwnd, alert.kind, &alert.title, &alert.message);
-                    }
+                    notify_quota_alerts(hwnd, &alerts);
                     save_state_settings();
                 }
                 IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {

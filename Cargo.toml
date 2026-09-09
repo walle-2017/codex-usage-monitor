@@ -10,7 +10,7 @@ repository = "https://github.com/walle-2017/codex-usage-monitor"
 [package.metadata.winres]
 CompanyName = "Ray"
 ProductName = "Codex Usage"
-FileDescription = "Lightweight Codex usage monitor for Windows"
+FileDescription = "Codex Usage"
 OriginalFilename = "codex-usage.exe"
 InternalName = "CodexUsage"
 Comments = "Derived from Claude Code Usage Monitor under the MIT License"

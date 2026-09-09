@@ -59,7 +59,11 @@ fn rotate_if_oversized(path: &Path) -> Result<(), String> {
     let backup = backup_path(path);
     let _ = fs::remove_file(&backup);
     fs::rename(path, &backup).map_err(|e| {
-        format!("Unable to rotate runtime log {} to {}: {e}", path.display(), backup.display())
+        format!(
+            "Unable to rotate runtime log {} to {}: {e}",
+            path.display(),
+            backup.display()
+        )
     })
 }
 

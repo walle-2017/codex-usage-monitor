@@ -191,7 +191,6 @@ pub struct Strings {
     pub update_title: &'static str,
     pub update_checking: &'static str,
     pub update_downloading: &'static str,
-    pub update_restarting: &'static str,
     pub update_success: &'static str,
     pub update_current: &'static str,
     pub update_check_failed: &'static str,
