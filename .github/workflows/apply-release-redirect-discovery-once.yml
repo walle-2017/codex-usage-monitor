@@ -20,243 +20,36 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: Apply redirect-based release discovery
+      - name: Apply redirect discovery and remove obsolete API branches
         shell: pwsh
         run: |
+          $previous = git show HEAD^:.github/workflows/apply-release-redirect-discovery-once.yml
+          $text = $previous -join "`n"
+          $startMarker = "          @'`n"
+          $endMarker = "`n          '@ | python -"
+          $start = $text.IndexOf($startMarker)
+          $end = $text.IndexOf($endMarker, $start + $startMarker.Length)
+          if ($start -lt 0 -or $end -lt 0) { throw 'Unable to recover redirect patch from previous workflow revision.' }
+          $python = $text.Substring($start + $startMarker.Length, $end - ($start + $startMarker.Length))
+          $python = ($python -split "`n" | ForEach-Object { if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ } }) -join "`n"
+          $python | python -
+
           @'
           from pathlib import Path
           import re
 
           p = Path('src/updater.rs')
           s = p.read_text(encoding='utf-8')
-
-          s = s.replace('use serde::Deserialize;\n', '')
-          s = s.replace(
-              'const LATEST_RELEASE_URL: &str =\n    "https://api.github.com/repos/walle-2017/codex-usage-monitor/releases/latest";\n',
-              'const LATEST_RELEASE_URL: &str =\n    "https://github.com/walle-2017/codex-usage-monitor/releases/latest";\nconst RELEASE_TAG_PREFIX: &str =\n    "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v";\nconst RELEASE_TAG_RELATIVE_PREFIX: &str =\n    "/walle-2017/codex-usage-monitor/releases/tag/v";\n'
-          )
-
-          s = re.sub(
-              r'\n#\[derive\(Clone, Debug, Deserialize\)\]\nstruct GithubRelease \{.*?\n\}\n\n#\[derive\(Clone, Debug, Deserialize\)\]\nstruct GithubAsset \{.*?\n\}\n',
-              '\n', s, flags=re.S
-          )
-
-          start = s.index('fn select_release_update(')
-          end = s.index('\nfn build_agent()', start)
-          replacement = r'''fn parse_release_redirect(location: &str) -> Result<(Version, String), UpdateError> {
-              let tag = location
-                  .strip_prefix(RELEASE_TAG_PREFIX)
-                  .or_else(|| location.strip_prefix(RELEASE_TAG_RELATIVE_PREFIX))
-                  .ok_or_else(|| {
-                      set_error_detail(format!("unexpected latest Release redirect: {}", safe_detail(location)));
-                      UpdateError::InvalidRelease
-                  })?;
-
-              if tag.is_empty()
-                  || tag.contains('/')
-                  || tag.contains('?')
-                  || tag.contains('#')
-                  || tag.contains('-')
-                  || tag.contains('+')
-              {
-                  set_error_detail(format!("invalid latest Release tag redirect: {}", safe_detail(location)));
-                  return Err(UpdateError::InvalidRelease);
-              }
-
-              let version = Version::parse(tag).ok_or_else(|| {
-                  set_error_detail(format!("invalid latest Release version: {}", safe_detail(tag)));
-                  UpdateError::InvalidRelease
-              })?;
-              let version_text = format!("{}.{}.{}", version.major, version.minor, version.patch);
-              Ok((version, version_text))
-          }
-
-          fn release_update_for_version(version: &str) -> ReleaseUpdate {
-              ReleaseUpdate {
-                  version: version.to_string(),
-                  executable_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{EXE_ASSET_NAME}"),
-                  checksum_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{CHECKSUM_ASSET_NAME}"),
-              }
-          }
-
-          fn build_discovery_agent() -> Result<ureq::Agent, UpdateError> {
-              let tls = native_tls::TlsConnector::new().map_err(|error| {
-                  let detail = format!("TLS initialization failed: {}", safe_detail(&error));
-                  set_error_detail(detail.clone());
-                  diagnose::log(format!("updater: {detail}"));
-                  UpdateError::CheckFailed
-              })?;
-              Ok(ureq::AgentBuilder::new()
-                  .timeout(Duration::from_secs(UPDATE_TIMEOUT_SECS))
-                  .redirects(0)
-                  .tls_connector(Arc::new(tls))
-                  .build())
-          }
-          '''
-          s = s[:start] + replacement + s[end:]
-
-          s = s.replace('.set("Accept", "application/vnd.github+json")', '.set("Accept", "*/*")')
-
-          prep_start = s.index('fn prepare_update() -> Result<UpdateOutcome, UpdateError> {')
-          prep_end = s.index('\nfn prepare_downloaded_package(', prep_start)
-          new_prepare = r'''fn prepare_update() -> Result<UpdateOutcome, UpdateError> {
-              let current_text = env!("CARGO_PKG_VERSION");
-              diagnose::log(format!("updater: checking latest Release current={current_text}"));
-              let current = Version::parse(current_text).ok_or(UpdateError::InvalidRelease)?;
-
-              let discovery_agent = build_discovery_agent()?;
-              let release_response = request_builder(&discovery_agent, LATEST_RELEASE_URL)
-                  .call()
-                  .map_err(|error| {
-                      let detail = format!("GitHub latest Release redirect request failed: {}", ureq_error_detail(error));
-                      set_error_detail(detail.clone());
-                      diagnose::log(format!("updater: {detail}"));
-                      UpdateError::CheckFailed
-                  })?;
-
-              let status = release_response.status();
-              if !matches!(status, 301 | 302 | 303 | 307 | 308) {
-                  let detail = format!("GitHub latest Release endpoint returned unexpected HTTP {status}");
-                  set_error_detail(detail.clone());
-                  diagnose::log(format!("updater: {detail}"));
-                  return Err(UpdateError::InvalidRelease);
-              }
-              let location = release_response.header("Location").ok_or_else(|| {
-                  set_error_detail("GitHub latest Release redirect is missing Location header");
-                  UpdateError::InvalidRelease
-              })?;
-              let (latest, latest_text) = parse_release_redirect(location)?;
-              diagnose::log(format!(
-                  "updater: latest release tag=v{latest_text} current={current_text} discovery=github-redirect"
-              ));
-
-              if latest <= current {
-                  diagnose::log("updater: current version is already latest");
-                  return Ok(UpdateOutcome::Current {
-                      version: current_text.to_string(),
-                  });
-              }
-
-              let update = release_update_for_version(&latest_text);
-              let agent = build_agent()?;
-              let staging_dir = unique_staging_dir();
-              fs::create_dir_all(&staging_dir).map_err(|error| {
-                  diagnose::log_error("updater: unable to create staging directory", error);
-                  UpdateError::DownloadFailed
-              })?;
-
-              match prepare_downloaded_package(&agent, update, staging_dir.clone()) {
-                  Ok(package) => Ok(UpdateOutcome::Ready(package)),
-                  Err(error) => {
-                      let _ = fs::remove_dir_all(staging_dir);
-                      Err(error)
-                  }
-              }
-          }
-          '''
-          s = s[:prep_start] + new_prepare + s[prep_end:]
-
-          tests_start = s.index('    fn release_json(', s.index('#[cfg(test)]'))
-          tests_end = s.index('    #[test]\n    fn checksum_parser_accepts_standard_release_line()', tests_start)
-          new_tests = r'''    #[test]
-              fn numeric_version_order_handles_two_digit_patch() {
-                  assert!(Version::parse("1.0.10").unwrap() > Version::parse("1.0.9").unwrap());
-              }
-
-              #[test]
-              fn equal_version_is_not_newer() {
-                  assert_eq!(Version::parse("1.0.2"), Version::parse("1.0.2"));
-              }
-
-              #[test]
-              fn leading_v_is_accepted_for_release_tag() {
-                  assert_eq!(
-                      Version::parse_tag("v1.0.3"),
-                      Some(Version { major: 1, minor: 0, patch: 3 })
-                  );
-              }
-
-              #[test]
-              fn release_redirect_accepts_absolute_and_relative_fork_tags() {
-                  let (absolute, text) = parse_release_redirect(
-                      "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.10",
-                  )
-                  .unwrap();
-                  assert_eq!(absolute, Version::parse("1.0.10").unwrap());
-                  assert_eq!(text, "1.0.10");
-
-                  let (relative, text) = parse_release_redirect(
-                      "/walle-2017/codex-usage-monitor/releases/tag/v1.0.3",
-                  )
-                  .unwrap();
-                  assert_eq!(relative, Version::parse("1.0.3").unwrap());
-                  assert_eq!(text, "1.0.3");
-              }
-
-              #[test]
-              fn release_redirect_rejects_other_repo_and_prerelease_tags() {
-                  assert_eq!(
-                      parse_release_redirect(
-                          "https://github.com/other-owner/codex-usage-monitor/releases/tag/v9.9.9"
-                      )
-                      .unwrap_err(),
-                      UpdateError::InvalidRelease
-                  );
-                  assert_eq!(
-                      parse_release_redirect(
-                          "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.3-beta.1"
-                      )
-                      .unwrap_err(),
-                      UpdateError::InvalidRelease
-                  );
-              }
-
-              #[test]
-              fn release_update_builds_exact_fork_asset_urls() {
-                  let update = release_update_for_version("1.0.3");
-                  assert_eq!(update.version, "1.0.3");
-                  assert_eq!(
-                      update.executable_url,
-                      "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe"
-                  );
-                  assert_eq!(
-                      update.checksum_url,
-                      "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe.sha256"
-                  );
-              }
-
-              #[test]
-              fn json_http_error_extracts_message_without_preview() {
-                  let (message, preview) = diagnostic_body_summary(
-                      Some("application/json; charset=utf-8"),
-                      r#"{"message":"API rate limit exceeded"}"#,
-                  );
-                  assert_eq!(message.as_deref(), Some("API rate limit exceeded"));
-                  assert!(preview.is_none());
-              }
-
-              #[test]
-              fn non_json_http_error_keeps_bounded_sanitized_preview() {
-                  let (message, preview) = diagnostic_body_summary(
-                      Some("text/html"),
-                      "proxy denied https://user:secret@example.com/request",
-                  );
-                  assert!(message.is_none());
-                  let preview = preview.expect("preview");
-                  assert!(preview.contains("<redacted>@example.com"));
-                  assert!(!preview.contains("secret"));
-              }
-
-              #[test]
-              fn malformed_version_is_rejected() {
-                  assert!(Version::parse("1.0").is_none());
-                  assert!(Version::parse("1.0.2.1").is_none());
-                  assert!(Version::parse("1.0.x").is_none());
-              }
-
-          '''
-          s = s[:tests_start] + new_tests + s[tests_end:]
+          s = s.replace('    MissingAsset,\n', '')
+          s = s.replace('        UpdateError::MissingAsset => "Required Release asset is missing".to_string(),\n', '')
+          s = re.sub(r'\n    fn parse_tag\(value: &str\) -> Option<Self> \{\n        Self::parse\(value\.strip_prefix\(\x27v\x27\)\.unwrap_or\(value\)\)\n    \}\n', '\n', s)
+          s = re.sub(r'\n    #\[test\]\n    fn leading_v_is_accepted_for_release_tag\(\) \{.*?\n    \}\n', '\n', s, flags=re.S)
           p.write_text(s, encoding='utf-8')
+
+          w = Path('src/window.rs')
+          ws = w.read_text(encoding='utf-8')
+          ws = ws.replace('\n                            | updater::UpdateError::MissingAsset', '')
+          w.write_text(ws, encoding='utf-8')
           '@ | python -
 
       - name: Verify redirect discovery
@@ -273,6 +66,6 @@ jobs:
           Remove-Item '.github/workflows/apply-release-redirect-discovery-once.yml'
           git config user.name 'walle-2017'
           git config user.email '1220754120@qq.com'
-          git add src/updater.rs .github/workflows/apply-release-redirect-discovery-once.yml
+          git add src/updater.rs src/window.rs .github/workflows/apply-release-redirect-discovery-once.yml
           git commit -m 'fix: avoid GitHub API rate limit for update discovery'
           git push origin HEAD:feature/auto-update
