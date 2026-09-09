@@ -1,0 +1,32 @@
+name: Apply Live Drag v1.0.1
+
+on:
+  push:
+    branches:
+      - v1.0.1-live-drag
+    paths:
+      - '.github/workflows/apply-live-drag-v101.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.0.1-live-drag
+          fetch-depth: 0
+      - name: Apply live drag implementation
+        shell: pwsh
+        run: ./scripts/apply-live-drag-v101.ps1
+      - name: Commit implementation
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/window.rs
+          git diff --cached --quiet && throw 'Live drag patch produced no staged changes.'
+          git commit -m "fix: follow cursor across taskbars while dragging"
+          git push origin HEAD:v1.0.1-live-drag
