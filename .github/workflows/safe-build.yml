@@ -64,6 +64,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-auto-update.ps1
 
+      - name: Verify persistent runtime logging contract
+        shell: pwsh
+        run: ./scripts/assert-runtime-log.ps1
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
