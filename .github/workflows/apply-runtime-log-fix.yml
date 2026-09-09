@@ -1,0 +1,434 @@
+name: Apply Runtime Logging Fix
+
+on:
+  push:
+    branches:
+      - feature/auto-update
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    if: ${{ github.actor == 'walle-2017' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auto-update
+          fetch-depth: 0
+
+      - name: Apply persistent logging and detailed updater errors
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          # diagnose.rs: always-on executable-directory log with single 5 MB rotation.
+          Path('src/diagnose.rs').write_text(r'''use std::fs::{self, File, OpenOptions};
+          use std::io::Write;
+          use std::path::{Path, PathBuf};
+          use std::sync::{Mutex, OnceLock};
+          use std::time::{SystemTime, UNIX_EPOCH};
+
+          const LOG_FILE_NAME: &str = "codex-usage.log";
+          const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
+
+          struct LogWriter {
+              path: PathBuf,
+              file: Option<File>,
+          }
+
+          struct DiagnoseState {
+              writer: Mutex<LogWriter>,
+          }
+
+          static DIAGNOSE_STATE: OnceLock<DiagnoseState> = OnceLock::new();
+
+          pub fn init() -> Result<PathBuf, String> {
+              let exe = std::env::current_exe()
+                  .map_err(|e| format!("Unable to resolve executable path for logging: {e}"))?;
+              let directory = exe
+                  .parent()
+                  .ok_or_else(|| "Executable has no parent directory for logging".to_string())?;
+              let path = directory.join(LOG_FILE_NAME);
+
+              rotate_if_oversized(&path)?;
+              let file = open_log(&path)?;
+              let _ = DIAGNOSE_STATE.set(DiagnoseState {
+                  writer: Mutex::new(LogWriter {
+                      path: path.clone(),
+                      file: Some(file),
+                  }),
+              });
+
+              log("runtime logging enabled");
+              Ok(path)
+          }
+
+          fn open_log(path: &Path) -> Result<File, String> {
+              OpenOptions::new()
+                  .create(true)
+                  .write(true)
+                  .append(true)
+                  .open(path)
+                  .map_err(|e| format!("Unable to open runtime log file {}: {e}", path.display()))
+          }
+
+          fn backup_path(path: &Path) -> PathBuf {
+              path.with_file_name("codex-usage.log.1")
+          }
+
+          fn rotate_if_oversized(path: &Path) -> Result<(), String> {
+              let oversized = fs::metadata(path)
+                  .map(|metadata| metadata.len() >= MAX_LOG_BYTES)
+                  .unwrap_or(false);
+              if !oversized {
+                  return Ok(());
+              }
+
+              let backup = backup_path(path);
+              let _ = fs::remove_file(&backup);
+              fs::rename(path, &backup).map_err(|e| {
+                  format!(
+                      "Unable to rotate runtime log {} to {}: {e}",
+                      path.display(),
+                      backup.display()
+                  )
+              })
+          }
+
+          fn rotate_locked(writer: &mut LogWriter) -> Result<(), String> {
+              let oversized = fs::metadata(&writer.path)
+                  .map(|metadata| metadata.len() >= MAX_LOG_BYTES)
+                  .unwrap_or(false);
+              if !oversized {
+                  return Ok(());
+              }
+
+              if let Some(file) = writer.file.take() {
+                  let _ = file.sync_all();
+                  drop(file);
+              }
+              rotate_if_oversized(&writer.path)?;
+              writer.file = Some(open_log(&writer.path)?);
+              Ok(())
+          }
+
+          pub fn is_enabled() -> bool {
+              DIAGNOSE_STATE.get().is_some()
+          }
+
+          pub fn log(message: impl AsRef<str>) {
+              let Some(state) = DIAGNOSE_STATE.get() else {
+                  return;
+              };
+
+              let timestamp = SystemTime::now()
+                  .duration_since(UNIX_EPOCH)
+                  .map(|duration| duration.as_secs())
+                  .unwrap_or(0);
+
+              if let Ok(mut writer) = state.writer.lock() {
+                  if rotate_locked(&mut writer).is_err() {
+                      if writer.file.is_none() {
+                          writer.file = open_log(&writer.path).ok();
+                      }
+                  }
+                  if let Some(file) = writer.file.as_mut() {
+                      let _ = writeln!(file, "[{timestamp}] {}", message.as_ref());
+                      let _ = file.flush();
+                  }
+              }
+          }
+
+          pub fn log_error(context: &str, error: impl std::fmt::Display) {
+              log(format!("{context}: {error}"));
+          }
+
+          #[cfg(test)]
+          mod tests {
+              use super::*;
+
+              #[test]
+              fn backup_name_is_single_generation() {
+                  assert_eq!(
+                      backup_path(Path::new(r"C:\\Tools\\codex-usage.log")),
+                      PathBuf::from(r"C:\\Tools\\codex-usage.log.1")
+                  );
+              }
+
+              #[test]
+              fn rotation_threshold_is_five_megabytes() {
+                  assert_eq!(MAX_LOG_BYTES, 5_242_880);
+              }
+          }
+          ''', encoding='utf-8')
+
+          # main.rs: initialize logging on every normal startup; do not log command-line arguments.
+          main = Path('src/main.rs').read_text(encoding='utf-8')
+          start = main.index('fn main() {')
+          main = main[:start] + r'''fn main() {
+              let executable = std::env::current_exe()
+                  .map(|value| value.display().to_string())
+                  .unwrap_or_else(|error| format!("unavailable:{error}"));
+              match diagnose::init() {
+                  Ok(path) => {
+                      diagnose::log(format!(
+                          "version={} executable={} log_path={}",
+                          env!("CARGO_PKG_VERSION"),
+                          executable,
+                          path.display()
+                      ));
+                  }
+                  Err(_) => {
+                      // The application must remain usable when its own directory is read-only.
+                  }
+              }
+
+              system_proxy::apply_windows_system_proxy_env();
+              diagnose::log("entering window::run");
+              window::run();
+          }
+          '''
+          Path('src/main.rs').write_text(main, encoding='utf-8')
+
+          # updater.rs: preserve concrete safe error details for the notification and log key phases.
+          p = Path('src/updater.rs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace(
+              'static UPDATE_RESULT: Mutex<Option<UpdateUiResult>> = Mutex::new(None);',
+              'static UPDATE_RESULT: Mutex<Option<UpdateUiResult>> = Mutex::new(None);\nstatic LAST_ERROR_DETAIL: Mutex<String> = Mutex::new(String::new());'
+          )
+          s = s.replace(
+              '    Failed(UpdateError),',
+              '    Failed { error: UpdateError, detail: String },'
+          )
+          marker = 'fn lock_result() -> MutexGuard<\'static, Option<UpdateUiResult>> {'
+          insert = r'''fn safe_detail(value: impl std::fmt::Display) -> String {
+              value
+                  .to_string()
+                  .replace(['\r', '\n'], " ")
+                  .chars()
+                  .take(240)
+                  .collect()
+          }
+
+          fn set_error_detail(detail: impl Into<String>) {
+              let mut stored = LAST_ERROR_DETAIL
+                  .lock()
+                  .unwrap_or_else(|error| error.into_inner());
+              *stored = detail.into();
+          }
+
+          fn clear_error_detail() {
+              set_error_detail(String::new());
+          }
+
+          fn visible_error_detail(error: &UpdateError) -> String {
+              let stored = LAST_ERROR_DETAIL
+                  .lock()
+                  .unwrap_or_else(|poisoned| poisoned.into_inner())
+                  .clone();
+              if !stored.is_empty() {
+                  return stored;
+              }
+              match error {
+                  UpdateError::CheckFailed => "GitHub Release request failed".to_string(),
+                  UpdateError::InvalidRelease => "Release metadata is invalid".to_string(),
+                  UpdateError::MissingAsset => "Required Release asset is missing".to_string(),
+                  UpdateError::DownloadFailed => "Release asset download failed".to_string(),
+                  UpdateError::InvalidChecksum => "Checksum file is invalid".to_string(),
+                  UpdateError::ChecksumMismatch => "SHA256 mismatch".to_string(),
+                  UpdateError::TargetNotWritable => "Executable directory is not writable".to_string(),
+                  UpdateError::HelperLaunchFailed => "Unable to start update helper".to_string(),
+              }
+          }
+
+          fn ureq_error_detail(error: &ureq::Error) -> String {
+              match error {
+                  ureq::Error::Status(status, _) => format!("HTTP {status}"),
+                  ureq::Error::Transport(transport) => {
+                      format!("network/TLS: {}", safe_detail(transport))
+                  }
+              }
+          }
+
+          '''
+          s = s.replace(marker, insert + marker)
+          s = s.replace(
+              'pub(crate) fn start_update(hwnd: HWND) -> bool {',
+              'pub(crate) fn start_update(hwnd: HWND) -> bool {\n    diagnose::log("updater: check started");\n    clear_error_detail();'
+          )
+          s = s.replace(
+              '                Err(error) => UpdateUiResult::Failed(error),',
+              '                Err(error) => {\n                    let detail = visible_error_detail(&error);\n                    diagnose::log(format!("updater: helper failed error={error:?} detail={detail}"));\n                    UpdateUiResult::Failed { error, detail }\n                },'
+          )
+          s = s.replace(
+              '            Err(error) => UpdateUiResult::Failed(error),',
+              '            Err(error) => {\n                let detail = visible_error_detail(&error);\n                diagnose::log(format!("updater: failed error={error:?} detail={detail}"));\n                UpdateUiResult::Failed { error, detail }\n            },'
+          )
+          s = s.replace(
+              '        return Err(UpdateError::InvalidRelease);',
+              '        set_error_detail("latest Release is draft or prerelease");\n        return Err(UpdateError::InvalidRelease);',
+              1
+          )
+          s = s.replace(
+              '    let release_version =\n        Version::parse_tag(&release.tag_name).ok_or(UpdateError::InvalidRelease)?;',
+              '    let release_version = Version::parse_tag(&release.tag_name).ok_or_else(|| {\n        set_error_detail(format!("invalid Release tag: {}", release.tag_name));\n        UpdateError::InvalidRelease\n    })?;'
+          )
+          s = s.replace(
+              '.find(|asset| asset.name == EXE_ASSET_NAME)\n        .ok_or(UpdateError::MissingAsset)?;',
+              '.find(|asset| asset.name == EXE_ASSET_NAME)\n        .ok_or_else(|| {\n            set_error_detail(format!("missing Release asset: {EXE_ASSET_NAME}"));\n            UpdateError::MissingAsset\n        })?;'
+          )
+          s = s.replace(
+              '.find(|asset| asset.name == CHECKSUM_ASSET_NAME)\n        .ok_or(UpdateError::MissingAsset)?;',
+              '.find(|asset| asset.name == CHECKSUM_ASSET_NAME)\n        .ok_or_else(|| {\n            set_error_detail(format!("missing Release asset: {CHECKSUM_ASSET_NAME}"));\n            UpdateError::MissingAsset\n        })?;'
+          )
+          s = s.replace(
+              '            return Err(UpdateError::InvalidRelease);',
+              '            set_error_detail("Release asset URL is outside the configured fork");\n            return Err(UpdateError::InvalidRelease);',
+              1
+          )
+          s = s.replace(
+              '        diagnose::log_error("updater: unable to create TLS connector", error);\n        UpdateError::CheckFailed',
+              '        let detail = format!("TLS initialization failed: {}", safe_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::CheckFailed'
+          )
+          s = s.replace(
+              '    let current_text = env!("CARGO_PKG_VERSION");',
+              '    let current_text = env!("CARGO_PKG_VERSION");\n    diagnose::log(format!("updater: checking latest Release current={current_text}"));'
+          )
+          s = s.replace(
+              '            diagnose::log_error("updater: latest release request failed", error);\n            UpdateError::CheckFailed',
+              '            let detail = format!("GitHub Release request failed: {}", ureq_error_detail(&error));\n            set_error_detail(detail.clone());\n            diagnose::log(format!("updater: {detail}"));\n            UpdateError::CheckFailed'
+          )
+          s = s.replace(
+              '        diagnose::log_error("updater: unable to parse release metadata", error);\n        UpdateError::InvalidRelease',
+              '        let detail = format!("Release metadata parse failed: {}", safe_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::InvalidRelease'
+          )
+          s = s.replace(
+              '    let Some(update) = select_release_update(&release, current)? else {',
+              '    diagnose::log(format!("updater: latest release tag={} current={current_text}", release.tag_name));\n    let Some(update) = select_release_update(&release, current)? else {'
+          )
+          s = s.replace(
+              '        return Ok(UpdateOutcome::Current {',
+              '        diagnose::log("updater: current version is already latest");\n        return Ok(UpdateOutcome::Current {'
+          )
+          s = s.replace(
+              '        diagnose::log_error("updater: unable to create staging directory", error);\n        UpdateError::DownloadFailed',
+              '        let detail = format!("unable to create update staging directory: {}", safe_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::DownloadFailed'
+          )
+          s = s.replace(
+              '    download_to(agent, &update.executable_url, &staged_exe)?;',
+              '    diagnose::log(format!("updater: update available version={}", update.version));\n    download_to(agent, &update.executable_url, &staged_exe)?;'
+          )
+          s = s.replace(
+              '        diagnose::log_error("updater: unable to read checksum asset", error);\n        UpdateError::InvalidChecksum',
+              '        let detail = format!("unable to read checksum asset: {}", safe_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::InvalidChecksum'
+          )
+          s = s.replace(
+              '    verify_sha256(&staged_exe, &expected)?;',
+              '    verify_sha256(&staged_exe, &expected)?;\n    diagnose::log("updater: downloaded executable SHA256 verified");'
+          )
+          s = s.replace(
+              '        diagnose::log_error("updater: unable to resolve current executable", error);\n        UpdateError::TargetNotWritable',
+              '        let detail = format!("unable to resolve current executable: {}", safe_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::TargetNotWritable'
+          )
+          s = s.replace(
+              '        diagnose::log_error("updater: unable to stage replacement beside executable", error);\n        UpdateError::TargetNotWritable',
+              '        let detail = format!("unable to stage replacement beside executable: {}", safe_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::TargetNotWritable'
+          )
+          s = s.replace(
+              '    let response = request_builder(agent, url).call().map_err(|error| {\n        diagnose::log_error("updater: release asset download failed", error);\n        UpdateError::DownloadFailed\n    })?;',
+              '    let response = request_builder(agent, url).call().map_err(|error| {\n        let detail = format!("Release asset download failed: {}", ureq_error_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::DownloadFailed\n    })?;'
+          )
+          s = s.replace(
+              '        return Err(UpdateError::InvalidChecksum);',
+              '        set_error_detail("checksum asset does not contain exactly one SHA256 value");\n        return Err(UpdateError::InvalidChecksum);',
+              1
+          )
+          s = s.replace(
+              '        Err(UpdateError::ChecksumMismatch)',
+              '        set_error_detail(format!("SHA256 mismatch: expected {expected}, actual {actual}"));\n        Err(UpdateError::ChecksumMismatch)'
+          )
+          s = s.replace(
+              '        diagnose::log_error("updater: executable directory is not writable", error);\n        UpdateError::TargetNotWritable',
+              '        let detail = format!("executable directory is not writable: {}", safe_detail(&error));\n        set_error_detail(detail.clone());\n        diagnose::log(format!("updater: {detail}"));\n        UpdateError::TargetNotWritable'
+          )
+          s = s.replace(
+              '        Ok(_) => Ok(()),',
+              '        Ok(_) => {\n            diagnose::log("updater: replacement helper launched; application will restart");\n            Ok(())\n        },'
+          )
+          s = s.replace(
+              '            diagnose::log_error("updater: unable to launch replacement helper", error);',
+              '            let detail = format!("unable to launch replacement helper: {}", safe_detail(&error));\n            set_error_detail(detail.clone());\n            diagnose::log(format!("updater: {detail}"));'
+          )
+          p.write_text(s, encoding='utf-8')
+
+          # window.rs: log click and append technical reason to failure notification.
+          p = Path('src/window.rs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace(
+              '                    updater::UpdateUiResult::Failed(error) => {',
+              '                    updater::UpdateUiResult::Failed { error, detail } => {'
+          )
+          old = '''                        tray_icon::notify_balloon(
+                            hwnd,
+                            tray_icon::TrayIconKind::Codex,
+                            strings.update_title,
+                            message,
+                        );'''
+          new = '''                        let message = if detail.is_empty() {
+                            message.to_string()
+                        } else {
+                            format!("{message}: {detail}")
+                        };
+                        tray_icon::notify_balloon(
+                            hwnd,
+                            tray_icon::TrayIconKind::Codex,
+                            strings.update_title,
+                            &message,
+                        );'''
+          # Replace only the failure block occurrence by locating after Failed arm.
+          idx = s.find('updater::UpdateUiResult::Failed { error, detail } => {')
+          if idx == -1:
+              raise SystemExit('Failed arm not found')
+          pos = s.find(old, idx)
+          if pos == -1:
+              raise SystemExit('failure balloon block not found')
+          s = s[:pos] + new + s[pos+len(old):]
+          s = s.replace(
+              '                IDM_CHECK_UPDATE => {\n                    let _ = updater::start_update(hwnd);',
+              '                IDM_CHECK_UPDATE => {\n                    diagnose::log("update command requested");\n                    let _ = updater::start_update(hwnd);'
+          )
+          p.write_text(s, encoding='utf-8')
+
+          # Poll success is useful but contains no token/account identifiers.
+          p = Path('src/poller.rs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace(
+              'pub fn poll() -> Result<AppUsageData, PollError> {\n    let codex = poll_codex()?;\n    Ok(AppUsageData { codex: Some(codex) })\n}',
+              'pub fn poll() -> Result<AppUsageData, PollError> {\n    let codex = poll_codex()?;\n    diagnose::log("Codex usage poll succeeded");\n    Ok(AppUsageData { codex: Some(codex) })\n}'
+          )
+          p.write_text(s, encoding='utf-8')
+          '@ | Set-Content -Encoding utf8 apply_changes.py
+          python apply_changes.py
+          Remove-Item apply_changes.py
+
+      - name: Verify fix
+        shell: pwsh
+        run: |
+          ./scripts/assert-auto-update.ps1
+          ./scripts/assert-runtime-log.ps1
+          cargo test
+          cargo clippy -- -D warnings
+
+      - name: Commit fix and remove one-time workflow
+        shell: pwsh
+        run: |
+          git config user.name "walle-2017"
+          git config user.email "1220754120@qq.com"
+          git rm .github/workflows/apply-runtime-log-fix.yml
+          git add src/diagnose.rs src/main.rs src/updater.rs src/window.rs src/poller.rs
+          git commit -m "fix: persist runtime logs and expose update errors"
+          git push origin HEAD:feature/auto-update
