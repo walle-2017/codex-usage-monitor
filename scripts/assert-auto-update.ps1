@@ -47,6 +47,8 @@ Assert-Match $window 'updater::start_update' 'The version command must start upd
 Assert-Match $main '(?m)^mod\s+updater;' 'main.rs must register the updater module.'
 
 Assert-Match $updater 'https://api\.github\.com/repos/walle-2017/codex-usage-monitor/releases/latest' 'Updater source must be pinned to this fork latest Release API.'
+Assert-Match $updater 'https://github\.com/walle-2017/codex-usage-monitor/releases/download/' 'Release assets must stay pinned to this fork.'
+Assert-Match $updater 'std::env::current_exe\(\)' 'Updater must target the currently running installed or portable executable.'
 Assert-Match $updater 'codex-usage\.exe' 'Updater must require codex-usage.exe.'
 Assert-Match $updater 'codex-usage\.exe\.sha256' 'Updater must require codex-usage.exe.sha256.'
 Assert-Match $updater '(?i)sha256' 'Updater must verify SHA256.'
@@ -54,6 +56,10 @@ Assert-Match $updater '\.old' 'Updater helper must contain rollback backup behav
 Assert-Match $updater '(?i)Wait-Process|Get-Process' 'Updater helper must wait for the old process.'
 Assert-Match $updater '(?i)prerelease' 'Updater must reject prerelease Releases.'
 Assert-Match $updater '(?i)draft' 'Updater must reject draft Releases.'
+
+if ($updater -match 'upstream-ray/codex-usage-monitor|ShumTin/CodexTray') {
+    throw 'Updater must never use upstream/original repositories as an update source.'
+}
 
 $forbidden = @(
     'codex login',
