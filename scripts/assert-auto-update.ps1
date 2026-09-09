@@ -62,6 +62,11 @@ Assert-Match $updater '(?i)Wait-Process|Get-Process' 'Updater helper must wait f
 Assert-Match $updater '(?i)prerelease' 'Updater must reject prerelease Releases.'
 Assert-Match $updater '(?i)draft' 'Updater must reject draft Releases.'
 
+Assert-Match $updater 'Failed\s*\{\s*error:\s*UpdateError,\s*detail:\s*String\s*\}' 'Update failures must retain a visible technical detail.'
+Assert-Match $updater 'fn\s+visible_error_detail\s*\(' 'Updater must normalize detailed errors for safe user display.'
+Assert-Match $window 'UpdateUiResult::Failed\s*\{\s*error,\s*detail\s*\}' 'Window must receive update error category and detail.'
+Assert-Match $window 'detail\.is_empty\(\)' 'Window must append non-empty update error detail to the notification.'
+
 if ($updater -match 'upstream-ray/codex-usage-monitor|ShumTin/CodexTray') {
     throw 'Updater must never use upstream/original repositories as an update source.'
 }
@@ -80,4 +85,4 @@ foreach ($pattern in $forbidden) {
     }
 }
 
-Write-Host 'PASS: auto-update source, async UI handoff, concurrency guard, checksum and rollback contracts are present.'
+Write-Host 'PASS: auto-update source, async UI handoff, detailed errors, concurrency guard, checksum and rollback contracts are present.'
