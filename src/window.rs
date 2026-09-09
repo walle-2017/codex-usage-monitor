@@ -2375,7 +2375,7 @@ unsafe extern "system" fn wnd_proc(
                             &message,
                         );
                     }
-                    updater::UpdateUiResult::Failed(error) => {
+                    updater::UpdateUiResult::Failed { error, detail } => {
                         let strings = {
                             let state = lock_state();
                             state
@@ -2399,11 +2399,16 @@ unsafe extern "system" fn wnd_proc(
                                 strings.update_helper_failed
                             }
                         };
+                        let message = if detail.is_empty() {
+                            message.to_string()
+                        } else {
+                            format!("{message}: {detail}")
+                        };
                         tray_icon::notify_balloon(
                             hwnd,
                             tray_icon::TrayIconKind::Codex,
                             strings.update_title,
-                            message,
+                            &message,
                         );
                     }
                     updater::UpdateUiResult::ReadyToRestart => {
@@ -2446,6 +2451,7 @@ unsafe extern "system" fn wnd_proc(
                     PostQuitMessage(0);
                 }
                 IDM_CHECK_UPDATE => {
+                    diagnose::log("update command requested");
                     let _ = updater::start_update(hwnd);
                 }
                 IDM_RESET_POSITION => {

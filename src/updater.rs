@@ -27,6 +27,7 @@ pub(crate) const WM_APP_UPDATE_RESULT: u32 = WM_APP + 21;
 
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static UPDATE_RESULT: Mutex<Option<UpdateUiResult>> = Mutex::new(None);
+static LAST_ERROR_DETAIL: Mutex<String> = Mutex::new(String::new());
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UpdateError {
@@ -43,7 +44,7 @@ pub(crate) enum UpdateError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UpdateUiResult {
     Current { version: String },
-    Failed(UpdateError),
+    Failed { error: UpdateError, detail: String },
     ReadyToRestart,
 }
 
@@ -111,11 +112,76 @@ enum UpdateOutcome {
     Ready(UpdatePackage),
 }
 
+fn safe_detail(value: impl std::fmt::Display) -> String {
+    let raw = value.to_string().replace(['\r', '\n'], " ");
+    redact_url_userinfo(&raw).chars().take(240).collect()
+}
+
+fn redact_url_userinfo(value: &str) -> String {
+    let mut output = value.to_string();
+    for scheme in ["https://", "http://"] {
+        let mut search_from = 0;
+        while let Some(relative) = output[search_from..].find(scheme) {
+            let start = search_from + relative + scheme.len();
+            let tail = &output[start..];
+            let Some(at_relative) = tail.find('@') else { break };
+            let slash_relative = tail.find('/').unwrap_or(usize::MAX);
+            if at_relative > slash_relative { break; }
+            let userinfo = &tail[..at_relative];
+            if userinfo.contains(':') {
+                output.replace_range(start..start + at_relative, "<redacted>");
+                search_from = start + "<redacted>@".len();
+            } else {
+                search_from = start + at_relative + 1;
+            }
+        }
+    }
+    output
+}
+
+fn set_error_detail(detail: impl Into<String>) {
+    let mut stored = LAST_ERROR_DETAIL.lock().unwrap_or_else(|error| error.into_inner());
+    *stored = detail.into();
+}
+
+fn clear_error_detail() {
+    set_error_detail(String::new());
+}
+
+fn visible_error_detail(error: &UpdateError) -> String {
+    let stored = LAST_ERROR_DETAIL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    if !stored.is_empty() {
+        return stored;
+    }
+    match error {
+        UpdateError::CheckFailed => "GitHub Release request failed".to_string(),
+        UpdateError::InvalidRelease => "Release metadata is invalid".to_string(),
+        UpdateError::MissingAsset => "Required Release asset is missing".to_string(),
+        UpdateError::DownloadFailed => "Release asset download failed".to_string(),
+        UpdateError::InvalidChecksum => "Checksum file is invalid".to_string(),
+        UpdateError::ChecksumMismatch => "SHA256 mismatch".to_string(),
+        UpdateError::TargetNotWritable => "Executable directory is not writable".to_string(),
+        UpdateError::HelperLaunchFailed => "Unable to start update helper".to_string(),
+    }
+}
+
+fn ureq_error_detail(error: &ureq::Error) -> String {
+    match error {
+        ureq::Error::Status(status, _) => format!("HTTP {status}"),
+        ureq::Error::Transport(transport) => format!("network/TLS: {}", safe_detail(transport)),
+    }
+}
+
 fn lock_result() -> MutexGuard<'static, Option<UpdateUiResult>> {
     UPDATE_RESULT.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 pub(crate) fn start_update(hwnd: HWND) -> bool {
+    diagnose::log("updater: check started");
+    clear_error_detail();
     if UPDATE_IN_PROGRESS
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
@@ -129,9 +195,17 @@ pub(crate) fn start_update(hwnd: HWND) -> bool {
             Ok(UpdateOutcome::Current { version }) => UpdateUiResult::Current { version },
             Ok(UpdateOutcome::Ready(package)) => match launch_prepared_update(package) {
                 Ok(()) => UpdateUiResult::ReadyToRestart,
-                Err(error) => UpdateUiResult::Failed(error),
+                Err(error) => {
+                    let detail = visible_error_detail(&error);
+                    diagnose::log(format!("updater: helper failed error={error:?} detail={detail}"));
+                    UpdateUiResult::Failed { error, detail }
+                },
             },
-            Err(error) => UpdateUiResult::Failed(error),
+            Err(error) => {
+                let detail = visible_error_detail(&error);
+                diagnose::log(format!("updater: failed error={error:?} detail={detail}"));
+                UpdateUiResult::Failed { error, detail }
+            },
         };
 
         *lock_result() = Some(ui_result);
@@ -157,11 +231,14 @@ fn select_release_update(
     current: Version,
 ) -> Result<Option<ReleaseUpdate>, UpdateError> {
     if release.draft || release.prerelease {
+        set_error_detail("latest Release is draft or prerelease");
         return Err(UpdateError::InvalidRelease);
     }
 
-    let release_version =
-        Version::parse_tag(&release.tag_name).ok_or(UpdateError::InvalidRelease)?;
+    let release_version = Version::parse_tag(&release.tag_name).ok_or_else(|| {
+        set_error_detail(format!("invalid Release tag: {}", release.tag_name));
+        UpdateError::InvalidRelease
+    })?;
     if release_version <= current {
         return Ok(None);
     }
@@ -170,15 +247,22 @@ fn select_release_update(
         .assets
         .iter()
         .find(|asset| asset.name == EXE_ASSET_NAME)
-        .ok_or(UpdateError::MissingAsset)?;
+        .ok_or_else(|| {
+            set_error_detail(format!("missing Release asset: {EXE_ASSET_NAME}"));
+            UpdateError::MissingAsset
+        })?;
     let checksum = release
         .assets
         .iter()
         .find(|asset| asset.name == CHECKSUM_ASSET_NAME)
-        .ok_or(UpdateError::MissingAsset)?;
+        .ok_or_else(|| {
+            set_error_detail(format!("missing Release asset: {CHECKSUM_ASSET_NAME}"));
+            UpdateError::MissingAsset
+        })?;
 
     for asset in [executable, checksum] {
         if !asset.browser_download_url.starts_with(RELEASE_ASSET_PREFIX) {
+            set_error_detail("Release asset URL is outside the configured fork");
             return Err(UpdateError::InvalidRelease);
         }
     }
@@ -195,7 +279,9 @@ fn select_release_update(
 
 fn build_agent() -> Result<ureq::Agent, UpdateError> {
     let tls = native_tls::TlsConnector::new().map_err(|error| {
-        diagnose::log_error("updater: unable to create TLS connector", error);
+        let detail = format!("TLS initialization failed: {}", safe_detail(&error));
+        set_error_detail(detail.clone());
+        diagnose::log(format!("updater: {detail}"));
         UpdateError::CheckFailed
     })?;
     Ok(ureq::AgentBuilder::new()
@@ -216,21 +302,28 @@ fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
 
 fn prepare_update() -> Result<UpdateOutcome, UpdateError> {
     let current_text = env!("CARGO_PKG_VERSION");
+    diagnose::log(format!("updater: checking latest Release current={current_text}"));
     let current = Version::parse(current_text).ok_or(UpdateError::InvalidRelease)?;
     let agent = build_agent()?;
 
     let release_response = request_builder(&agent, LATEST_RELEASE_URL)
         .call()
         .map_err(|error| {
-            diagnose::log_error("updater: latest release request failed", error);
+            let detail = format!("GitHub Release request failed: {}", ureq_error_detail(&error));
+            set_error_detail(detail.clone());
+            diagnose::log(format!("updater: {detail}"));
             UpdateError::CheckFailed
         })?;
     let release: GithubRelease = release_response.into_json().map_err(|error| {
-        diagnose::log_error("updater: unable to parse release metadata", error);
+        let detail = format!("Release metadata parse failed: {}", safe_detail(&error));
+        set_error_detail(detail.clone());
+        diagnose::log(format!("updater: {detail}"));
         UpdateError::InvalidRelease
     })?;
 
+    diagnose::log(format!("updater: latest release tag={} current={current_text}", release.tag_name));
     let Some(update) = select_release_update(&release, current)? else {
+        diagnose::log("updater: current version is already latest");
         return Ok(UpdateOutcome::Current {
             version: current_text.to_string(),
         });
@@ -259,6 +352,7 @@ fn prepare_downloaded_package(
     let staged_exe = staging_dir.join(EXE_ASSET_NAME);
     let checksum_path = staging_dir.join(CHECKSUM_ASSET_NAME);
 
+    diagnose::log(format!("updater: update available version={}", update.version));
     download_to(agent, &update.executable_url, &staged_exe)?;
     download_to(agent, &update.checksum_url, &checksum_path)?;
 
@@ -268,6 +362,7 @@ fn prepare_downloaded_package(
     })?;
     let expected = parse_sha256(&checksum_text)?;
     verify_sha256(&staged_exe, &expected)?;
+    diagnose::log("updater: downloaded executable SHA256 verified");
 
     let target = std::env::current_exe().map_err(|error| {
         diagnose::log_error("updater: unable to resolve current executable", error);
@@ -305,7 +400,9 @@ fn download_to(agent: &ureq::Agent, url: &str, destination: &Path) -> Result<(),
         return Err(UpdateError::InvalidRelease);
     }
     let response = request_builder(agent, url).call().map_err(|error| {
-        diagnose::log_error("updater: release asset download failed", error);
+        let detail = format!("Release asset download failed: {}", ureq_error_detail(&error));
+        set_error_detail(detail.clone());
+        diagnose::log(format!("updater: {detail}"));
         UpdateError::DownloadFailed
     })?;
     let mut reader = response.into_reader();
@@ -330,6 +427,7 @@ fn parse_sha256(value: &str) -> Result<String, UpdateError> {
         .filter(|token| token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .collect();
     if matches.len() != 1 {
+        set_error_detail("checksum asset does not contain exactly one SHA256 value");
         return Err(UpdateError::InvalidChecksum);
     }
     Ok(matches[0].to_ascii_lowercase())
@@ -356,6 +454,7 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<(), UpdateError> {
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
+        set_error_detail(format!("SHA256 mismatch: expected {expected}, actual {actual}"));
         Err(UpdateError::ChecksumMismatch)
     }
 }
@@ -390,7 +489,9 @@ fn preflight_writable(directory: &Path) -> Result<(), UpdateError> {
         .and_then(|mut file| file.write_all(b"probe"));
     let _ = fs::remove_file(&probe);
     result.map_err(|error| {
-        diagnose::log_error("updater: executable directory is not writable", error);
+        let detail = format!("executable directory is not writable: {}", safe_detail(&error));
+        set_error_detail(detail.clone());
+        diagnose::log(format!("updater: {detail}"));
         UpdateError::TargetNotWritable
     })
 }
@@ -527,9 +628,14 @@ fn launch_prepared_update(package: UpdatePackage) -> Result<(), UpdateError> {
     })?;
 
     match spawn_hidden_powershell(&helper_path) {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            diagnose::log("updater: replacement helper launched; application will restart");
+            Ok(())
+        },
         Err(error) => {
-            diagnose::log_error("updater: unable to launch replacement helper", error);
+            let detail = format!("unable to launch replacement helper: {}", safe_detail(&error));
+            set_error_detail(detail.clone());
+            diagnose::log(format!("updater: {detail}"));
             cleanup_failed_package(&package);
             Err(UpdateError::HelperLaunchFailed)
         }
