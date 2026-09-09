@@ -65,6 +65,8 @@ Assert-Match $updater 'UPDATE_SUCCESS_ARG_PREFIX\s*:\s*&str\s*=\s*"--codex-usage
 Assert-Match $updater 'fn\s+successful_update_version_from_args\s*\(' 'New process must validate the internal success argument.'
 Assert-Match $updater 'fn\s+is_internal_update_arg\s*\(' 'Internal update arguments must be identifiable for filtering.'
 Assert-Match $updater 'filter\([^\r\n]*is_internal_update_arg|filter_map\(' 'Preserved relaunch args must filter updater-internal state.'
+Assert-Match $updater '\$LaunchArgs\s*=\s*@\(\$RelaunchArgs\)\s*\+\s*@\(\$SuccessArg\)' 'Replacement helper must append the one-shot success argument to preserved user arguments.'
+Assert-Match $updater 'Start-Process\s+-FilePath\s+\$Target\s+-ArgumentList\s+\$LaunchArgs' 'Replacement helper must relaunch the updated executable with the one-shot success argument.'
 Assert-NoMatch $updater 'UPDATE_SUCCESS_MARKER_SUFFIX|SuccessMarker|update-success|Set-Content\s+-LiteralPath' 'Updater must not use a persistent success marker file.'
 Assert-Match $window 'successful_update_version_from_args' 'Window startup must consume the process-local update success argument.'
 Assert-Match $window 'is_internal_update_arg' 'Explorer relaunch must not propagate updater-internal success arguments.'
