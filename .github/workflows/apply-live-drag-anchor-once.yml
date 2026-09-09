@@ -72,8 +72,8 @@ jobs:
           if count != 1:
               raise SystemExit('offset_for_drop_point helper not replaced')
 
-          down_pattern = re.compile(r'''        WM_LBUTTONDOWN => \{.*?\n        WM_MOUSEMOVE => \{''', re.S)
-          down_replacement = '''        WM_LBUTTONDOWN => {
+          down_pattern = re.compile(r'''\bWM_LBUTTONDOWN\s*=>\s*\{.*?\bWM_MOUSEMOVE\s*=>\s*\{''', re.S)
+          down_replacement = '''WM_LBUTTONDOWN => {
               let client_x = (lparam.0 & 0xFFFF) as i16 as i32;
               let client_y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
               if !is_drag_handle_point(client_x, client_y) {
@@ -103,8 +103,8 @@ jobs:
           if count != 1:
               raise SystemExit('WM_LBUTTONDOWN block not replaced')
 
-          move_pattern = re.compile(r'''        WM_MOUSEMOVE => \{.*?\n        WM_CANCELMODE => \{''', re.S)
-          move_replacement = '''        WM_MOUSEMOVE => {
+          move_pattern = re.compile(r'''\bWM_MOUSEMOVE\s*=>\s*\{.*?\bWM_CANCELMODE\s*=>\s*\{''', re.S)
+          move_replacement = '''WM_MOUSEMOVE => {
               let is_dragging = {
                   let state = lock_state();
                   state.as_ref().map(|s| s.dragging).unwrap_or(false)
@@ -226,8 +226,8 @@ jobs:
           if count != 1:
               raise SystemExit('WM_MOUSEMOVE block not replaced')
 
-          up_pattern = re.compile(r'''        WM_LBUTTONUP => \{.*?\n        WM_RBUTTONUP => \{''', re.S)
-          up_replacement = '''        WM_LBUTTONUP => {
+          up_pattern = re.compile(r'''\bWM_LBUTTONUP\s*=>\s*\{.*?\bWM_RBUTTONUP\s*=>\s*\{''', re.S)
+          up_replacement = '''WM_LBUTTONUP => {
               let mut pt = POINT::default();
               let _ = GetCursorPos(&mut pt);
               let drag_result = {
