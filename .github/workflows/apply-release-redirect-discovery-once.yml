@@ -20,7 +20,7 @@ jobs:
         with:
           components: clippy
       - name: Apply redirect-based release discovery
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
           import re
