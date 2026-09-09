@@ -44,11 +44,16 @@ if ($versionBlock.Groups['body'].Value -notmatch 'IDM_CHECK_UPDATE') {
 
 Assert-Match $window 'IDM_CHECK_UPDATE\s*=>' 'WM_COMMAND must handle IDM_CHECK_UPDATE.'
 Assert-Match $window 'updater::start_update' 'The version command must start updater asynchronously.'
+Assert-Match $window 'updater::WM_APP_UPDATE_RESULT\s*=>' 'Update worker results must return to the Win32 UI thread.'
 Assert-Match $main '(?m)^mod\s+updater;' 'main.rs must register the updater module.'
 
 Assert-Match $updater 'https://api\.github\.com/repos/walle-2017/codex-usage-monitor/releases/latest' 'Updater source must be pinned to this fork latest Release API.'
 Assert-Match $updater 'https://github\.com/walle-2017/codex-usage-monitor/releases/download/' 'Release assets must stay pinned to this fork.'
 Assert-Match $updater 'std::env::current_exe\(\)' 'Updater must target the currently running installed or portable executable.'
+Assert-Match $updater 'AtomicBool' 'Updater must guard against concurrent update operations.'
+Assert-Match $updater 'compare_exchange' 'Updater must atomically reject duplicate update starts.'
+Assert-Match $updater 'std::thread::spawn' 'Update network and disk work must run off the UI thread.'
+Assert-Match $updater 'PostMessageW' 'Update completion must be posted back to the UI thread.'
 Assert-Match $updater 'codex-usage\.exe' 'Updater must require codex-usage.exe.'
 Assert-Match $updater 'codex-usage\.exe\.sha256' 'Updater must require codex-usage.exe.sha256.'
 Assert-Match $updater '(?i)sha256' 'Updater must verify SHA256.'
@@ -75,4 +80,4 @@ foreach ($pattern in $forbidden) {
     }
 }
 
-Write-Host 'PASS: auto-update source, menu wiring, checksum and rollback contracts are present.'
+Write-Host 'PASS: auto-update source, async UI handoff, concurrency guard, checksum and rollback contracts are present.'
