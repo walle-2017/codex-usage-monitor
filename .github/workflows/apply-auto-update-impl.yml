@@ -1,0 +1,180 @@
+name: Apply Auto Update Implementation
+
+on:
+  push:
+    branches:
+      - feature/auto-update
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auto-update
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Patch UI localization docs and lockfile
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f"expected text not found in {path}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # window.rs: import, command id, enabled version row, async command, UI result handler.
+          replace_once('src/window.rs', 'use crate::tray_icon;\n', 'use crate::tray_icon;\nuse crate::updater;\n')
+          replace_once(
+              'src/window.rs',
+              'const IDM_LANG_SIMPLIFIED_CHINESE: u16 = 51;\n',
+              'const IDM_LANG_SIMPLIFIED_CHINESE: u16 = 51;\nconst IDM_CHECK_UPDATE: u16 = 60;\n'
+          )
+          replace_once(
+              'src/window.rs',
+              '''        let _ = AppendMenuW(\n            settings_menu,\n            MF_GRAYED,\n            0,\n            PCWSTR::from_raw(version_label.as_ptr()),\n        );''',
+              '''        let _ = AppendMenuW(\n            settings_menu,\n            MENU_ITEM_FLAGS(0),\n            IDM_CHECK_UPDATE as usize,\n            PCWSTR::from_raw(version_label.as_ptr()),\n        );'''
+          )
+          replace_once(
+              'src/window.rs',
+              '''                IDM_RESET_POSITION => {''',
+              '''                IDM_CHECK_UPDATE => {\n                    let _ = updater::start_update(hwnd);\n                }\n                IDM_RESET_POSITION => {'''
+          )
+          replace_once(
+              'src/window.rs',
+              '''        WM_RBUTTONUP => {\n            show_context_menu(hwnd);\n            LRESULT(0)\n        }''',
+              '''        updater::WM_APP_UPDATE_RESULT => {\n            if let Some(result) = updater::take_ui_result() {\n                match result {\n                    updater::UpdateUiResult::Current { version } => {\n                        let strings = {\n                            let state = lock_state();\n                            state\n                                .as_ref()\n                                .map(|s| s.language.strings())\n                                .unwrap_or_else(|| LanguageId::English.strings())\n                        };\n                        let message = format!("{} v{}", strings.update_current, version);\n                        tray_icon::notify_balloon(\n                            hwnd,\n                            tray_icon::TrayIconKind::Codex,\n                            strings.update_title,\n                            &message,\n                        );\n                    }\n                    updater::UpdateUiResult::Failed(error) => {\n                        let strings = {\n                            let state = lock_state();\n                            state\n                                .as_ref()\n                                .map(|s| s.language.strings())\n                                .unwrap_or_else(|| LanguageId::English.strings())\n                        };\n                        let message = match error {\n                            updater::UpdateError::CheckFailed\n                            | updater::UpdateError::InvalidRelease\n                            | updater::UpdateError::MissingAsset => strings.update_check_failed,\n                            updater::UpdateError::DownloadFailed => strings.update_download_failed,\n                            updater::UpdateError::InvalidChecksum\n                            | updater::UpdateError::ChecksumMismatch => strings.update_checksum_failed,\n                            updater::UpdateError::TargetNotWritable => {\n                                strings.update_target_not_writable\n                            }\n                            updater::UpdateError::HelperLaunchFailed => strings.update_helper_failed,\n                        };\n                        tray_icon::notify_balloon(\n                            hwnd,\n                            tray_icon::TrayIconKind::Codex,\n                            strings.update_title,\n                            message,\n                        );\n                    }\n                    updater::UpdateUiResult::ReadyToRestart => {\n                        let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));\n                    }\n                }\n            }\n            LRESULT(0)\n        }\n        WM_RBUTTONUP => {\n            show_context_menu(hwnd);\n            LRESULT(0)\n        }'''
+          )
+
+          # Localization structure.
+          replace_once(
+              'src/localization/mod.rs',
+              "    pub codex_token_expired_body: &'static str,\n}",
+              "    pub codex_token_expired_body: &'static str,\n    pub update_title: &'static str,\n    pub update_current: &'static str,\n    pub update_check_failed: &'static str,\n    pub update_download_failed: &'static str,\n    pub update_checksum_failed: &'static str,\n    pub update_target_not_writable: &'static str,\n    pub update_helper_failed: &'static str,\n}"
+          )
+
+          translations = {
+              'english.rs': [
+                  'Codex Usage Update', 'Already on the latest version', 'Failed to check for updates',
+                  'Failed to download the update', 'Update file verification failed',
+                  'The program directory is not writable', 'Failed to start the updater'],
+              'dutch.rs': [
+                  'Codex Usage-update', 'De nieuwste versie is al geïnstalleerd', 'Controleren op updates is mislukt',
+                  'Downloaden van de update is mislukt', 'Verificatie van het updatebestand is mislukt',
+                  'De programmamap is niet beschrijfbaar', 'Starten van de updater is mislukt'],
+              'spanish.rs': [
+                  'Actualización de Codex Usage', 'Ya tienes la versión más reciente', 'No se pudo buscar actualizaciones',
+                  'No se pudo descargar la actualización', 'Falló la verificación del archivo de actualización',
+                  'No se puede escribir en la carpeta del programa', 'No se pudo iniciar el actualizador'],
+              'french.rs': [
+                  'Mise à jour de Codex Usage', 'Vous utilisez déjà la dernière version', 'Échec de la recherche de mises à jour',
+                  'Échec du téléchargement de la mise à jour', 'Échec de la vérification du fichier de mise à jour',
+                  "Le dossier du programme n'est pas accessible en écriture", "Échec du démarrage de l'outil de mise à jour"],
+              'german.rs': [
+                  'Codex Usage-Update', 'Die neueste Version ist bereits installiert', 'Die Suche nach Updates ist fehlgeschlagen',
+                  'Das Update konnte nicht heruntergeladen werden', 'Die Prüfung der Update-Datei ist fehlgeschlagen',
+                  'Das Programmverzeichnis ist nicht beschreibbar', 'Der Updater konnte nicht gestartet werden'],
+              'japanese.rs': [
+                  'Codex Usage 更新', 'すでに最新バージョンです', '更新の確認に失敗しました',
+                  '更新のダウンロードに失敗しました', '更新ファイルの検証に失敗しました',
+                  'プログラムフォルダーに書き込めません', 'アップデーターの起動に失敗しました'],
+              'korean.rs': [
+                  'Codex Usage 업데이트', '이미 최신 버전입니다', '업데이트 확인에 실패했습니다',
+                  '업데이트 다운로드에 실패했습니다', '업데이트 파일 검증에 실패했습니다',
+                  '프로그램 폴더에 쓸 수 없습니다', '업데이터를 시작하지 못했습니다'],
+              'simplified_chinese.rs': [
+                  'Codex Usage 更新', '当前已是最新版本', '检查更新失败',
+                  '下载更新失败', '更新文件校验失败', '当前程序目录无法写入', '启动更新程序失败'],
+              'traditional_chinese.rs': [
+                  'Codex Usage 更新', '目前已是最新版本', '檢查更新失敗',
+                  '下載更新失敗', '更新檔案驗證失敗', '目前程式目錄無法寫入', '啟動更新程式失敗'],
+              'russian.rs': [
+                  'Обновление Codex Usage', 'Уже установлена последняя версия', 'Не удалось проверить обновления',
+                  'Не удалось скачать обновление', 'Не удалось проверить файл обновления',
+                  'Нет доступа на запись в папку программы', 'Не удалось запустить средство обновления'],
+              'portuguese_brazil.rs': [
+                  'Atualização do Codex Usage', 'Você já está na versão mais recente', 'Falha ao verificar atualizações',
+                  'Falha ao baixar a atualização', 'Falha na verificação do arquivo de atualização',
+                  'A pasta do programa não permite gravação', 'Falha ao iniciar o atualizador'],
+          }
+
+          def rust_string(value):
+              return value.replace('\\', '\\\\').replace('"', '\\"')
+
+          for name, values in translations.items():
+              p = Path('src/localization') / name
+              text = p.read_text(encoding='utf-8')
+              if 'update_title:' in text:
+                  continue
+              marker = '\n};\n'
+              if marker not in text:
+                  raise SystemExit(f'localization terminator not found: {p}')
+              keys = [
+                  'update_title', 'update_current', 'update_check_failed', 'update_download_failed',
+                  'update_checksum_failed', 'update_target_not_writable', 'update_helper_failed'
+              ]
+              block = ''.join(f'    {k}: "{rust_string(v)}",\n' for k, v in zip(keys, values))
+              p.write_text(text.replace(marker, '\n' + block + '};\n', 1), encoding='utf-8')
+
+          # Documentation: append focused feature sections without changing the released 1.0.2 version number.
+          docs = {
+              'README.md': '''\n\n### In-app update check\n\nThe version row in **Settings** is clickable. Clicking it checks only the latest stable Release of `walle-2017/codex-usage-monitor`. If a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. There is no startup or periodic background update check.\n''',
+              'README.zh-CN.md': '''\n\n### 应用内更新\n\n**设置**中的版本号可点击。点击后只检查 `walle-2017/codex-usage-monitor` 当前 Fork 的最新稳定 Release。发现新版本时，程序会下载 `codex-usage.exe` 与 `codex-usage.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。当前版本不会在启动时或后台定时检查更新。\n''',
+              'README-FORK.md': '''\n\n## In-app update development\n\nThe `feature/auto-update` implementation adds a manually initiated in-app update path from this Fork's latest stable GitHub Release. The executable and `codex-usage.exe.sha256` are required, SHA256 is verified before exit, and replacement uses a generated local rollback helper for both installed and portable writable locations. No startup or periodic update polling is introduced.\n''',
+              'docs/installation.md': '''\n\n## Updating from the running app\n\nOpen the tray context menu, choose **Settings**, and click the displayed version. Codex Usage checks only the latest stable Release from `walle-2017/codex-usage-monitor`. A newer release is downloaded and SHA256-verified before the current process exits. Installed and portable writable locations are supported.\n''',
+              'docs/troubleshooting.md': '''\n\n## In-app update fails\n\nThe running version is left unchanged when the Release check, download, SHA256 verification, target-directory write preflight, or updater launch fails. Ensure GitHub is reachable through the same proxy environment used by Codex Usage and that the directory containing the running executable is writable. The updater does not request UAC elevation.\n''',
+          }
+          for path, section in docs.items():
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              sentinel = section.strip().splitlines()[0]
+              if sentinel not in text:
+                  p.write_text(text.rstrip() + section + '\n', encoding='utf-8')
+
+          # Update docs assertion: allow the new updater and require its security/source contract.
+          p = Path('scripts/assert-final-docs.ps1')
+          text = p.read_text(encoding='utf-8')
+          text = text.replace("    'self-update',\n", '')
+          text = text.replace("    '自更新',\n", '')
+          old_tail = "Write-Output 'PASS: user-facing documentation matches the Codex-only v1.0.2 product state.'\nexit 0\n"
+          new_tail = """if (-not $Joined.Contains('walle-2017/codex-usage-monitor') -or -not $Joined.Contains('codex-usage.exe.sha256')) {\n    throw 'User-facing docs must describe the pinned fork Release updater and checksum asset.'\n}\nif (-not $Readme.Contains('In-app update check') -or -not $ReadmeZh.Contains('应用内更新')) {\n    throw 'Primary READMEs must document the clickable in-app update flow.'\n}\n\nWrite-Output 'PASS: user-facing documentation matches the Codex-only v1.0.2 product state with manual in-app updates.'\nexit 0\n"""
+          if old_tail not in text:
+              raise SystemExit('assert-final-docs tail not found')
+          p.write_text(text.replace(old_tail, new_tail, 1), encoding='utf-8')
+          '@ | Set-Content -Encoding utf8 patch_auto_update.py
+
+          python patch_auto_update.py
+          Remove-Item patch_auto_update.py
+          cargo fmt
+          cargo generate-lockfile
+
+      - name: Verify implementation before commit
+        shell: pwsh
+        run: |
+          ./scripts/assert-auto-update.ps1
+          cargo test
+          cargo clippy -- -D warnings
+
+      - name: Commit implementation and remove one-time workflow
+        shell: pwsh
+        run: |
+          git config user.name "walle-2017"
+          git config user.email "1220754120@qq.com"
+          git rm .github/workflows/apply-auto-update-impl.yml
+          git add Cargo.lock src/window.rs src/localization README.md README.zh-CN.md README-FORK.md docs/installation.md docs/troubleshooting.md scripts/assert-final-docs.ps1
+          if (git diff --cached --quiet) { throw 'No implementation changes staged.' }
+          git commit -m "feat: wire secure in-app auto update"
+          git push origin HEAD:feature/auto-update
