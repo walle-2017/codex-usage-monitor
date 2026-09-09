@@ -31,3 +31,5 @@ jobs:
           git diff --cached --exit-code -- . ':(exclude)Cargo.lock'
           git commit -m "chore: sync Cargo.lock for v1.0.1"
           git push origin HEAD:v1.0.1-live-drag
+
+# one-shot rerun marker: 2
