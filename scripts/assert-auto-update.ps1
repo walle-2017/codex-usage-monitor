@@ -67,6 +67,24 @@ Assert-Match $updater 'fn\s+visible_error_detail\s*\(' 'Updater must normalize d
 Assert-Match $window 'UpdateUiResult::Failed\s*\{\s*error,\s*detail\s*\}' 'Window must receive update error category and detail.'
 Assert-Match $window 'detail\.is_empty\(\)' 'Window must append non-empty update error detail to the notification.'
 
+# HTTP 403 diagnostics must distinguish GitHub API rate limiting from a proxy/WAF block.
+Assert-Match $updater 'fn\s+github_status_detail\s*\(' 'Updater must inspect HTTP status responses before discarding them.'
+foreach ($header in @(
+    'X-RateLimit-Limit',
+    'X-RateLimit-Remaining',
+    'X-RateLimit-Reset',
+    'X-RateLimit-Resource',
+    'Retry-After',
+    'Server',
+    'Content-Type'
+)) {
+    Assert-Match $updater ([regex]::Escape($header)) "Updater must retain diagnostic response header: $header"
+}
+Assert-Match $updater 'body_message' 'Updater must extract a bounded safe response message when present.'
+Assert-Match $updater 'body_preview' 'Updater must retain a bounded sanitized preview for non-JSON proxy/WAF responses.'
+Assert-Match $updater 'take\(' 'HTTP diagnostic response bodies must be bounded before reading.'
+Assert-Match $updater 'redact_url_userinfo' 'HTTP diagnostic body text must reuse URL credential redaction.'
+
 if ($updater -match 'upstream-ray/codex-usage-monitor|ShumTin/CodexTray') {
     throw 'Updater must never use upstream/original repositories as an update source.'
 }
@@ -85,4 +103,4 @@ foreach ($pattern in $forbidden) {
     }
 }
 
-Write-Host 'PASS: auto-update source, async UI handoff, detailed errors, concurrency guard, checksum and rollback contracts are present.'
+Write-Host 'PASS: auto-update source, async UI handoff, detailed HTTP diagnostics, concurrency guard, checksum and rollback contracts are present.'
