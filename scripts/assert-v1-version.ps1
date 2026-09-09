@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$ExpectedVersion = '1.0.1'
+$ExpectedVersion = '1.0.2'
 
 $CargoToml = Get-Content -Raw -LiteralPath 'Cargo.toml'
 $PackageMatch = [regex]::Match(

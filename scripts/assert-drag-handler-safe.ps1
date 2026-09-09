@@ -22,8 +22,8 @@ if ($moveBody -notmatch 'taskbar_at_point\s*\(') {
 if ($moveBody -notmatch 'attach_to_taskbar\s*\(\s*hwnd\s*,\s*target_index\s*\)') {
     throw 'WM_MOUSEMOVE must reattach the widget as soon as the cursor enters another taskbar.'
 }
-if ($moveBody -notmatch 'offset_for_drop_point\s*\(') {
-    throw 'WM_MOUSEMOVE must preserve the cursor grab point when switching taskbars.'
+if ($moveBody -notmatch 'drag_left_from_cursor\s*\(') {
+    throw 'WM_MOUSEMOVE must preserve the cursor grab point with cursor-anchored geometry when switching taskbars.'
 }
 if ($moveBody -notmatch 'SetCapture\s*\(\s*hwnd\s*\)') {
     throw 'WM_MOUSEMOVE must restore mouse capture after a live taskbar switch.'
