@@ -1,3 +1,4 @@
+# Regression contract for the v1.0.1 live cross-taskbar mouse-capture fix.
 $ErrorActionPreference = 'Stop'
 
 $source = Get-Content -Raw (Join-Path $PSScriptRoot '..\src\window.rs')
