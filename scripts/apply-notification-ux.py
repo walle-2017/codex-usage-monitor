@@ -16,19 +16,11 @@ def sub_once(text: str, pattern: str, replacement: str, label: str, flags=0) -> 
     return updated
 
 
-# Concise Windows application identity.
 cargo_path = Path("Cargo.toml")
 cargo = cargo_path.read_text(encoding="utf-8")
-cargo = replace_once(
-    cargo,
-    'FileDescription = "Lightweight Codex usage monitor for Windows"',
-    'FileDescription = "Codex Usage"',
-    "Cargo FileDescription",
-)
+cargo = replace_once(cargo, 'FileDescription = "Lightweight Codex usage monitor for Windows"', 'FileDescription = "Codex Usage"', "Cargo FileDescription")
 cargo_path.write_text(cargo, encoding="utf-8")
 
-
-# Notification API: routine info has no warning glyph; real failures retain warning style.
 tray_path = Path("src/tray_icon.rs")
 tray = tray_path.read_text(encoding="utf-8")
 tray = replace_once(
@@ -37,7 +29,9 @@ tray = replace_once(
     "ExtractIconExW, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_NONE,\n    NIIF_WARNING,\n",
     "tray imports",
 )
-old_notify = '''pub fn notify_balloon(hwnd: HWND, _kind: TrayIconKind, title: &str, message: &str) {
+tray = replace_once(
+    tray,
+    '''pub fn notify_balloon(hwnd: HWND, _kind: TrayIconKind, title: &str, message: &str) {
     unsafe {
         let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
         nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
@@ -50,8 +44,8 @@ old_notify = '''pub fn notify_balloon(hwnd: HWND, _kind: TrayIconKind, title: &s
         let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
     }
 }
-'''
-new_notify = '''pub fn notify_info(hwnd: HWND, kind: TrayIconKind, title: &str, message: &str) {
+''',
+    '''pub fn notify_info(hwnd: HWND, kind: TrayIconKind, title: &str, message: &str) {
     notify_balloon(hwnd, kind, title, message, false);
 }
 
@@ -86,20 +80,14 @@ pub fn clear_notification(hwnd: HWND) {
         let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
     }
 }
-'''
-tray = replace_once(tray, old_notify, new_notify, "tray notification API")
+''',
+    "tray notification API",
+)
 tray_path.write_text(tray, encoding="utf-8")
 
-
-# Updater: delayed checking notification, one active Updating notification, process-local success arg.
 updater_path = Path("src/updater.rs")
 u = updater_path.read_text(encoding="utf-8")
-u = replace_once(
-    u,
-    "use std::sync::atomic::{AtomicBool, Ordering};",
-    "use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};",
-    "AtomicU8 import",
-)
+u = replace_once(u, "use std::sync::atomic::{AtomicBool, Ordering};", "use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};", "AtomicU8 import")
 u = replace_once(
     u,
     'const CREATE_NO_WINDOW: u32 = 0x0800_0000;\nconst UPDATE_SUCCESS_MARKER_SUFFIX: &str = "update-success";',
@@ -127,7 +115,9 @@ u = replace_once(
 ''',
     "UpdateProgress enum",
 )
-old_start = '''    let hwnd_raw = hwnd.0 as isize;
+u = replace_once(
+    u,
+    '''    let hwnd_raw = hwnd.0 as isize;
     post_progress(hwnd_raw, UpdateProgress::Checking);
     std::thread::spawn(move || {
         let ui_result = match prepare_update(hwnd_raw) {
@@ -159,8 +149,8 @@ old_start = '''    let hwnd_raw = hwnd.0 as isize;
             let _ = PostMessageW(target_hwnd, WM_APP_UPDATE_RESULT, WPARAM(0), LPARAM(0));
         }
     });
-'''
-new_start = '''    let hwnd_raw = hwnd.0 as isize;
+''',
+    '''    let hwnd_raw = hwnd.0 as isize;
     lock_progress().clear();
     UPDATE_STAGE.store(UPDATE_STAGE_CHECKING, Ordering::Release);
     let delayed_hwnd_raw = hwnd_raw;
@@ -198,8 +188,9 @@ new_start = '''    let hwnd_raw = hwnd.0 as isize;
             let _ = PostMessageW(target_hwnd, WM_APP_UPDATE_RESULT, WPARAM(0), LPARAM(0));
         }
     });
-'''
-u = replace_once(u, old_start, new_start, "start_update progress flow")
+''',
+    "start_update progress flow",
+)
 u = replace_once(
     u,
     '''    post_progress(
@@ -225,8 +216,10 @@ u = replace_once(
     "    let relaunch_args = std::env::args()\n        .skip(1)\n        .filter(|arg| !is_internal_update_arg(arg))\n        .collect();",
     "filter relaunch args",
 )
-marker_pattern = r'''fn success_marker_path\(target: &Path\) -> PathBuf \{.*?\n\}\n\npub\(crate\) fn take_successful_update_version\(\) -> Option<String> \{.*?\n\}\n'''
-marker_replacement = '''pub(crate) fn is_internal_update_arg(arg: &str) -> bool {
+u = sub_once(
+    u,
+    r'''fn success_marker_path\(target: &Path\) -> PathBuf \{.*?\n\}\n\npub\(crate\) fn take_successful_update_version\(\) -> Option<String> \{.*?\n\}\n''',
+    '''pub(crate) fn is_internal_update_arg(arg: &str) -> bool {
     arg.starts_with(UPDATE_SUCCESS_ARG_PREFIX)
 }
 
@@ -248,17 +241,16 @@ pub(crate) fn successful_update_version_from_args() -> Option<String> {
     if UPDATE_SUCCESS_ARG_CONSUMED.swap(true, Ordering::AcqRel) {
         return None;
     }
-    let version = successful_update_version_from_iter(
-        std::env::args().skip(1),
-        env!("CARGO_PKG_VERSION"),
-    );
+    let version = successful_update_version_from_iter(std::env::args().skip(1), env!("CARGO_PKG_VERSION"));
     if let Some(version) = version.as_ref() {
         diagnose::log(format!("updater: successful update argument consumed version={version}"));
     }
     version
 }
-'''
-u = sub_once(u, marker_pattern, marker_replacement, "replace success marker functions", flags=re.S)
+''',
+    "replace success marker functions",
+    flags=re.S,
+)
 u = replace_once(
     u,
     '''    let staging = ps_single_quote(&package.staging_dir.to_string_lossy());
@@ -292,34 +284,27 @@ u = u.replace("    Remove-Item -LiteralPath $SuccessMarker -Force -ErrorAction S
 u = u.replace("    Set-Content -LiteralPath $SuccessMarker -Value $Version -Encoding ascii\n\n", "")
 u = replace_once(
     u,
-    '''        if ($RelaunchArgs.Count -gt 0) {
+    '''        if ($RelaunchArgs.Count -gt 0) {{
             Start-Process -FilePath $Target -ArgumentList $RelaunchArgs -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
-        } else {
+        }} else {{
             Start-Process -FilePath $Target -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
-        }
+        }}
 ''',
     '''        Start-Process -FilePath $Target -ArgumentList $LaunchArgs -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
 ''',
     "PowerShell relaunch args",
 )
-# Replace old marker tests with argument tests.
 u = sub_once(
     u,
     r'''    #\[test\]\n    fn success_marker_is_consumed_only_for_current_version\(\) \{.*?    #\[test\]\n    fn numeric_version_order_handles_two_digit_patch''',
     '''    #[test]
     fn success_argument_is_accepted_only_for_current_version() {
         assert_eq!(
-            successful_update_version_from_iter(
-                vec!["--codex-usage-updated-to=1.2.3".to_string()],
-                "1.2.3",
-            ),
+            successful_update_version_from_iter(vec!["--codex-usage-updated-to=1.2.3".to_string()], "1.2.3"),
             Some("1.2.3".to_string())
         );
         assert_eq!(
-            successful_update_version_from_iter(
-                vec!["--codex-usage-updated-to=9.9.9".to_string()],
-                "1.2.3",
-            ),
+            successful_update_version_from_iter(vec!["--codex-usage-updated-to=9.9.9".to_string()], "1.2.3"),
             None
         );
     }
@@ -337,8 +322,6 @@ u = sub_once(
 )
 updater_path.write_text(u, encoding="utf-8")
 
-
-# Window: filter internal args, collapse update notifications, aggregate quota alerts.
 window_path = Path("src/window.rs")
 w = window_path.read_text(encoding="utf-8")
 w = replace_once(
@@ -348,13 +331,7 @@ w = replace_once(
     "watchdog arg filter",
 )
 w = w.replace("tray_icon::notify_balloon", "tray_icon::notify_info")
-w = replace_once(
-    w,
-    "if let Some(version) = updater::take_successful_update_version() {",
-    "if let Some(version) = updater::successful_update_version_from_args() {",
-    "startup success arg",
-)
-# Auth expiration is a true warning.
+w = replace_once(w, "if let Some(version) = updater::take_successful_update_version() {", "if let Some(version) = updater::successful_update_version_from_args() {", "startup success arg")
 auth_info = '''                    tray_icon::notify_info(
                         hwnd,
                         tray_icon::TrayIconKind::Codex,
@@ -362,7 +339,6 @@ auth_info = '''                    tray_icon::notify_info(
                         s.language.strings().codex_token_expired_body,
                     );'''
 w = replace_once(w, auth_info, auth_info.replace("notify_info", "notify_warning"), "auth warning")
-# Aggregate both polling-time and threshold-change quota alerts.
 w = replace_once(
     w,
     '''            for alert in &quota_alerts {
@@ -383,8 +359,10 @@ w = replace_once(
 ''',
     "settings quota aggregation",
 )
-# Add aggregate helper before provider alert builder.
-quota_helper = '''fn notify_quota_alerts(hwnd: HWND, alerts: &[QuotaAlert]) {
+w = replace_once(
+    w,
+    "#[allow(clippy::too_many_arguments)]\nfn append_provider_alerts(",
+    '''fn notify_quota_alerts(hwnd: HWND, alerts: &[QuotaAlert]) {
     let Some(first) = alerts.first() else {
         return;
     };
@@ -396,30 +374,17 @@ quota_helper = '''fn notify_quota_alerts(hwnd: HWND, alerts: &[QuotaAlert]) {
     tray_icon::notify_info(hwnd, first.kind, &first.title, &message);
 }
 
-'''
-w = replace_once(
-    w,
-    "#[allow(clippy::too_many_arguments)]\nfn append_provider_alerts(",
-    quota_helper + "#[allow(clippy::too_many_arguments)]\nfn append_provider_alerts(",
+#[allow(clippy::too_many_arguments)]
+fn append_provider_alerts(''',
     "quota notify helper",
 )
-# Make quota copy concise.
 w = replace_once(w, 'format!("{provider_label} 额度提醒")', 'format!("{provider_label} 额度")', "Chinese quota title")
-w = replace_once(
-    w,
-    '"{window_label}额度仅剩 {remaining}%，重置时间：{}",',
-    '"{window_label} 剩余 {remaining}% · {} 重置",',
-    "Chinese quota message",
-)
+w = replace_once(w, '"{window_label}额度仅剩 {remaining}%，重置时间：{}",', '"{window_label} 剩余 {remaining}% · {} 重置",', "Chinese quota message")
 w = replace_once(w, 'format!("{provider_label} quota alert")', 'format!("{provider_label} quota")', "English quota title")
+w = replace_once(w, '"{window_label} quota has {remaining}% remaining. Reset: {}",', '"{window_label} {remaining}% remaining · reset {}",', "English quota message")
 w = replace_once(
     w,
-    '"{window_label} quota has {remaining}% remaining. Reset: {}",',
-    '"{window_label} {remaining}% remaining · reset {}",',
-    "English quota message",
-)
-# Progress UI: only Checking and Updating. Updating replaces any older balloon.
-old_progress = '''                let message = match progress {
+    '''                let message = match progress {
                     updater::UpdateProgress::Checking => strings.update_checking.to_string(),
                     updater::UpdateProgress::Downloading { version } => {
                         format!("{} v{}", strings.update_downloading, version)
@@ -434,8 +399,8 @@ old_progress = '''                let message = match progress {
                     strings.update_title,
                     &message,
                 );
-'''
-new_progress = '''                let message = match progress {
+''',
+    '''                let message = match progress {
                     updater::UpdateProgress::Checking => strings.update_checking.to_string(),
                     updater::UpdateProgress::Updating { version } => {
                         tray_icon::clear_notification(hwnd);
@@ -448,9 +413,9 @@ new_progress = '''                let message = match progress {
                     strings.update_title,
                     &message,
                 );
-'''
-w = replace_once(w, old_progress, new_progress, "update progress UI")
-# Current result replaces checking balloon.
+''',
+    "update progress UI",
+)
 w = replace_once(
     w,
     '''                        let message = format!("{} v{}", strings.update_current, version);
@@ -462,8 +427,9 @@ w = replace_once(
 ''',
     "current result clears progress",
 )
-# Failure replaces progress and uses warning style.
-old_failure_notify = '''                        let message = if detail.is_empty() {
+w = replace_once(
+    w,
+    '''                        let message = if detail.is_empty() {
                             message.to_string()
                         } else {
                             format!("{message}: {detail}")
@@ -473,16 +439,24 @@ old_failure_notify = '''                        let message = if detail.is_empty
                             tray_icon::TrayIconKind::Codex,
                             strings.update_title,
                             &message,
-                        );'''
-new_failure_notify = old_failure_notify.replace(
-    "                        tray_icon::notify_info(",
-    "                        tray_icon::clear_notification(hwnd);\n                        tray_icon::notify_warning(",
+                        );''',
+    '''                        let message = if detail.is_empty() {
+                            message.to_string()
+                        } else {
+                            format!("{message}: {detail}")
+                        };
+                        tray_icon::clear_notification(hwnd);
+                        tray_icon::notify_warning(
+                            hwnd,
+                            tray_icon::TrayIconKind::Codex,
+                            strings.update_title,
+                            &message,
+                        );''',
+    "failure warning",
 )
-w = replace_once(w, old_failure_notify, new_failure_notify, "failure warning")
-# Restart immediately after clearing stale progress; no separate notification delay.
 w = sub_once(
     w,
-    r'''                    updater::UpdateUiResult::ReadyToRestart => \{\n                        // Give the Windows notification.*?                    \}\n                \}\n''',
+    r'''                    updater::UpdateUiResult::ReadyToRestart => \{.*?                    \}\n                \}\n''',
     '''                    updater::UpdateUiResult::ReadyToRestart => {
                         tray_icon::clear_notification(hwnd);
                         let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -494,8 +468,6 @@ w = sub_once(
 )
 window_path.write_text(w, encoding="utf-8")
 
-
-# Remove obsolete restarting localization and make active update copy concise in all languages.
 translations = {
     "english.rs": "Updating to",
     "dutch.rs": "Bijwerken naar",
@@ -512,12 +484,7 @@ translations = {
 for filename, text in translations.items():
     path = Path("src/localization") / filename
     content = path.read_text(encoding="utf-8")
-    content = sub_once(
-        content,
-        r'    update_downloading: ".*?",',
-        f'    update_downloading: "{text}",',
-        f"{filename} update copy",
-    )
+    content = sub_once(content, r'    update_downloading: ".*?",', f'    update_downloading: "{text}",', f"{filename} update copy")
     content, count = re.subn(r'^    update_restarting: .*\n', '', content, count=1, flags=re.M)
     if count != 1:
         raise SystemExit(f"{filename}: expected one update_restarting field, got {count}")
