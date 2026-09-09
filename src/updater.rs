@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
@@ -14,7 +13,11 @@ use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 use crate::diagnose;
 
 const LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/walle-2017/codex-usage-monitor/releases/latest";
+    "https://github.com/walle-2017/codex-usage-monitor/releases/latest";
+const RELEASE_TAG_PREFIX: &str =
+    "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v";
+const RELEASE_TAG_RELATIVE_PREFIX: &str =
+    "/walle-2017/codex-usage-monitor/releases/tag/v";
 const RELEASE_ASSET_PREFIX: &str =
     "https://github.com/walle-2017/codex-usage-monitor/releases/download/";
 const EXE_ASSET_NAME: &str = "codex-usage.exe";
@@ -33,7 +36,6 @@ static LAST_ERROR_DETAIL: Mutex<String> = Mutex::new(String::new());
 pub(crate) enum UpdateError {
     CheckFailed,
     InvalidRelease,
-    MissingAsset,
     DownloadFailed,
     InvalidChecksum,
     ChecksumMismatch,
@@ -71,24 +73,8 @@ impl Version {
         })
     }
 
-    fn parse_tag(value: &str) -> Option<Self> {
-        Self::parse(value.strip_prefix('v').unwrap_or(value))
-    }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct GithubRelease {
-    tag_name: String,
-    draft: bool,
-    prerelease: bool,
-    assets: Vec<GithubAsset>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct GithubAsset {
-    name: String,
-    browser_download_url: String,
-}
 
 #[derive(Clone, Debug)]
 struct ReleaseUpdate {
@@ -159,7 +145,6 @@ fn visible_error_detail(error: &UpdateError) -> String {
     match error {
         UpdateError::CheckFailed => "GitHub Release request failed".to_string(),
         UpdateError::InvalidRelease => "Release metadata is invalid".to_string(),
-        UpdateError::MissingAsset => "Required Release asset is missing".to_string(),
         UpdateError::DownloadFailed => "Release asset download failed".to_string(),
         UpdateError::InvalidChecksum => "Checksum file is invalid".to_string(),
         UpdateError::ChecksumMismatch => "SHA256 mismatch".to_string(),
@@ -276,55 +261,54 @@ pub(crate) fn take_ui_result() -> Option<UpdateUiResult> {
     result
 }
 
-fn select_release_update(
-    release: &GithubRelease,
-    current: Version,
-) -> Result<Option<ReleaseUpdate>, UpdateError> {
-    if release.draft || release.prerelease {
-        set_error_detail("latest Release is draft or prerelease");
+fn parse_release_redirect(location: &str) -> Result<(Version, String), UpdateError> {
+    let tag = location
+        .strip_prefix(RELEASE_TAG_PREFIX)
+        .or_else(|| location.strip_prefix(RELEASE_TAG_RELATIVE_PREFIX))
+        .ok_or_else(|| {
+            set_error_detail(format!("unexpected latest Release redirect: {}", safe_detail(location)));
+            UpdateError::InvalidRelease
+        })?;
+
+    if tag.is_empty()
+        || tag.contains('/')
+        || tag.contains('?')
+        || tag.contains('#')
+        || tag.contains('-')
+        || tag.contains('+')
+    {
+        set_error_detail(format!("invalid latest Release tag redirect: {}", safe_detail(location)));
         return Err(UpdateError::InvalidRelease);
     }
 
-    let release_version = Version::parse_tag(&release.tag_name).ok_or_else(|| {
-        set_error_detail(format!("invalid Release tag: {}", release.tag_name));
+    let version = Version::parse(tag).ok_or_else(|| {
+        set_error_detail(format!("invalid latest Release version: {}", safe_detail(tag)));
         UpdateError::InvalidRelease
     })?;
-    if release_version <= current {
-        return Ok(None);
+    let version_text = format!("{}.{}.{}", version.major, version.minor, version.patch);
+    Ok((version, version_text))
+}
+
+fn release_update_for_version(version: &str) -> ReleaseUpdate {
+    ReleaseUpdate {
+        version: version.to_string(),
+        executable_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{EXE_ASSET_NAME}"),
+        checksum_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{CHECKSUM_ASSET_NAME}"),
     }
+}
 
-    let executable = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == EXE_ASSET_NAME)
-        .ok_or_else(|| {
-            set_error_detail(format!("missing Release asset: {EXE_ASSET_NAME}"));
-            UpdateError::MissingAsset
-        })?;
-    let checksum = release
-        .assets
-        .iter()
-        .find(|asset| asset.name == CHECKSUM_ASSET_NAME)
-        .ok_or_else(|| {
-            set_error_detail(format!("missing Release asset: {CHECKSUM_ASSET_NAME}"));
-            UpdateError::MissingAsset
-        })?;
-
-    for asset in [executable, checksum] {
-        if !asset.browser_download_url.starts_with(RELEASE_ASSET_PREFIX) {
-            set_error_detail("Release asset URL is outside the configured fork");
-            return Err(UpdateError::InvalidRelease);
-        }
-    }
-
-    Ok(Some(ReleaseUpdate {
-        version: format!(
-            "{}.{}.{}",
-            release_version.major, release_version.minor, release_version.patch
-        ),
-        executable_url: executable.browser_download_url.clone(),
-        checksum_url: checksum.browser_download_url.clone(),
-    }))
+fn build_discovery_agent() -> Result<ureq::Agent, UpdateError> {
+    let tls = native_tls::TlsConnector::new().map_err(|error| {
+        let detail = format!("TLS initialization failed: {}", safe_detail(&error));
+        set_error_detail(detail.clone());
+        diagnose::log(format!("updater: {detail}"));
+        UpdateError::CheckFailed
+    })?;
+    Ok(ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(UPDATE_TIMEOUT_SECS))
+        .redirects(0)
+        .tls_connector(Arc::new(tls))
+        .build())
 }
 
 fn build_agent() -> Result<ureq::Agent, UpdateError> {
@@ -347,38 +331,49 @@ fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
             "User-Agent",
             &format!("CodexUsage-Updater/{}", env!("CARGO_PKG_VERSION")),
         )
-        .set("Accept", "application/vnd.github+json")
+        .set("Accept", "*/*")
 }
 
 fn prepare_update() -> Result<UpdateOutcome, UpdateError> {
     let current_text = env!("CARGO_PKG_VERSION");
     diagnose::log(format!("updater: checking latest Release current={current_text}"));
     let current = Version::parse(current_text).ok_or(UpdateError::InvalidRelease)?;
-    let agent = build_agent()?;
 
-    let release_response = request_builder(&agent, LATEST_RELEASE_URL)
+    let discovery_agent = build_discovery_agent()?;
+    let release_response = request_builder(&discovery_agent, LATEST_RELEASE_URL)
         .call()
         .map_err(|error| {
-            let detail = format!("GitHub Release request failed: {}", ureq_error_detail(error));
+            let detail = format!("GitHub latest Release redirect request failed: {}", ureq_error_detail(error));
             set_error_detail(detail.clone());
             diagnose::log(format!("updater: {detail}"));
             UpdateError::CheckFailed
         })?;
-    let release: GithubRelease = release_response.into_json().map_err(|error| {
-        let detail = format!("Release metadata parse failed: {}", safe_detail(&error));
+
+    let status = release_response.status();
+    if !matches!(status, 301 | 302 | 303 | 307 | 308) {
+        let detail = format!("GitHub latest Release endpoint returned unexpected HTTP {status}");
         set_error_detail(detail.clone());
         diagnose::log(format!("updater: {detail}"));
+        return Err(UpdateError::InvalidRelease);
+    }
+    let location = release_response.header("Location").ok_or_else(|| {
+        set_error_detail("GitHub latest Release redirect is missing Location header");
         UpdateError::InvalidRelease
     })?;
+    let (latest, latest_text) = parse_release_redirect(location)?;
+    diagnose::log(format!(
+        "updater: latest release tag=v{latest_text} current={current_text} discovery=github-redirect"
+    ));
 
-    diagnose::log(format!("updater: latest release tag={} current={current_text}", release.tag_name));
-    let Some(update) = select_release_update(&release, current)? else {
+    if latest <= current {
         diagnose::log("updater: current version is already latest");
         return Ok(UpdateOutcome::Current {
             version: current_text.to_string(),
         });
-    };
+    }
 
+    let update = release_update_for_version(&latest_text);
+    let agent = build_agent()?;
     let staging_dir = unique_staging_dir();
     fs::create_dir_all(&staging_dir).map_err(|error| {
         diagnose::log_error("updater: unable to create staging directory", error);
@@ -719,27 +714,6 @@ fn cleanup_failed_package(package: &UpdatePackage) {
 mod tests {
     use super::*;
 
-    fn release_json(tag: &str, draft: bool, prerelease: bool, assets: &str) -> GithubRelease {
-        serde_json::from_str(&format!(
-            r#"{{"tag_name":"{tag}","draft":{draft},"prerelease":{prerelease},"assets":[{assets}]}}"#
-        ))
-        .unwrap()
-    }
-
-    fn asset(name: &str, version: &str) -> String {
-        format!(
-            r#"{{"name":"{name}","browser_download_url":"https://github.com/walle-2017/codex-usage-monitor/releases/download/v{version}/{name}"}}"#
-        )
-    }
-
-    fn complete_assets(version: &str) -> String {
-        format!(
-            "{},{}",
-            asset(EXE_ASSET_NAME, version),
-            asset(CHECKSUM_ASSET_NAME, version)
-        )
-    }
-
     #[test]
     fn numeric_version_order_handles_two_digit_patch() {
         assert!(Version::parse("1.0.10").unwrap() > Version::parse("1.0.9").unwrap());
@@ -750,15 +724,53 @@ mod tests {
         assert_eq!(Version::parse("1.0.2"), Version::parse("1.0.2"));
     }
 
+
     #[test]
-    fn leading_v_is_accepted_for_release_tag() {
+    fn release_redirect_accepts_absolute_and_relative_fork_tags() {
+        let (absolute, text) = parse_release_redirect(
+            "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.10",
+        )
+        .unwrap();
+        assert_eq!(absolute, Version::parse("1.0.10").unwrap());
+        assert_eq!(text, "1.0.10");
+
+        let (relative, text) = parse_release_redirect(
+            "/walle-2017/codex-usage-monitor/releases/tag/v1.0.3",
+        )
+        .unwrap();
+        assert_eq!(relative, Version::parse("1.0.3").unwrap());
+        assert_eq!(text, "1.0.3");
+    }
+
+    #[test]
+    fn release_redirect_rejects_other_repo_and_prerelease_tags() {
         assert_eq!(
-            Version::parse_tag("v1.0.3"),
-            Some(Version {
-                major: 1,
-                minor: 0,
-                patch: 3
-            })
+            parse_release_redirect(
+                "https://github.com/other-owner/codex-usage-monitor/releases/tag/v9.9.9"
+            )
+            .unwrap_err(),
+            UpdateError::InvalidRelease
+        );
+        assert_eq!(
+            parse_release_redirect(
+                "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.3-beta.1"
+            )
+            .unwrap_err(),
+            UpdateError::InvalidRelease
+        );
+    }
+
+    #[test]
+    fn release_update_builds_exact_fork_asset_urls() {
+        let update = release_update_for_version("1.0.3");
+        assert_eq!(update.version, "1.0.3");
+        assert_eq!(
+            update.executable_url,
+            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe"
+        );
+        assert_eq!(
+            update.checksum_url,
+            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe.sha256"
         );
     }
 
@@ -789,55 +801,6 @@ mod tests {
         assert!(Version::parse("1.0").is_none());
         assert!(Version::parse("1.0.2.1").is_none());
         assert!(Version::parse("1.0.x").is_none());
-    }
-
-    #[test]
-    fn prerelease_and_draft_are_rejected() {
-        let assets = complete_assets("1.0.3");
-        let pre = release_json("v1.0.3", false, true, &assets);
-        let draft = release_json("v1.0.3", true, false, &assets);
-        let current = Version::parse("1.0.2").unwrap();
-        assert_eq!(
-            select_release_update(&pre, current).unwrap_err(),
-            UpdateError::InvalidRelease
-        );
-        assert_eq!(
-            select_release_update(&draft, current).unwrap_err(),
-            UpdateError::InvalidRelease
-        );
-    }
-
-    #[test]
-    fn equal_or_lower_release_does_not_update() {
-        let assets = complete_assets("1.0.2");
-        let current = Version::parse("1.0.2").unwrap();
-        assert!(select_release_update(&release_json("v1.0.2", false, false, &assets), current)
-            .unwrap()
-            .is_none());
-        assert!(select_release_update(&release_json("v1.0.1", false, false, &assets), current)
-            .unwrap()
-            .is_none());
-    }
-
-    #[test]
-    fn newer_release_requires_both_exact_assets() {
-        let current = Version::parse("1.0.2").unwrap();
-        let only_exe = release_json(
-            "v1.0.3",
-            false,
-            false,
-            &asset(EXE_ASSET_NAME, "1.0.3"),
-        );
-        assert_eq!(
-            select_release_update(&only_exe, current).unwrap_err(),
-            UpdateError::MissingAsset
-        );
-
-        let complete = release_json("v1.0.3", false, false, &complete_assets("1.0.3"));
-        let selected = select_release_update(&complete, current).unwrap().unwrap();
-        assert_eq!(selected.version, "1.0.3");
-        assert!(selected.executable_url.ends_with("/codex-usage.exe"));
-        assert!(selected.checksum_url.ends_with("/codex-usage.exe.sha256"));
     }
 
     #[test]
