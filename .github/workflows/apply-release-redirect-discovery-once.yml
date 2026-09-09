@@ -2,15 +2,16 @@ name: Apply Release Redirect Discovery Once
 
 on:
   push:
-    branches: [feature/auto-update]
+    branches:
+      - feature/auto-update
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
     runs-on: windows-latest
+    if: ${{ github.actor == 'walle-2017' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,8 +21,9 @@ jobs:
         with:
           components: clippy
       - name: Apply redirect-based release discovery
-        shell: python {0}
+        shell: pwsh
         run: |
+          @'
           from pathlib import Path
           import re
 
@@ -42,240 +44,220 @@ jobs:
           start = s.index('fn select_release_update(')
           end = s.index('\nfn build_agent()', start)
           replacement = r'''fn parse_release_redirect(location: &str) -> Result<(Version, String), UpdateError> {
-    let tag = location
-        .strip_prefix(RELEASE_TAG_PREFIX)
-        .or_else(|| location.strip_prefix(RELEASE_TAG_RELATIVE_PREFIX))
-        .ok_or_else(|| {
-            set_error_detail(format!("unexpected latest Release redirect: {}", safe_detail(location)));
-            UpdateError::InvalidRelease
-        })?;
+              let tag = location
+                  .strip_prefix(RELEASE_TAG_PREFIX)
+                  .or_else(|| location.strip_prefix(RELEASE_TAG_RELATIVE_PREFIX))
+                  .ok_or_else(|| {
+                      set_error_detail(format!("unexpected latest Release redirect: {}", safe_detail(location)));
+                      UpdateError::InvalidRelease
+                  })?;
 
-    if tag.is_empty()
-        || tag.contains('/')
-        || tag.contains('?')
-        || tag.contains('#')
-        || tag.contains('-')
-        || tag.contains('+')
-    {
-        set_error_detail(format!("invalid latest Release tag redirect: {}", safe_detail(location)));
-        return Err(UpdateError::InvalidRelease);
-    }
+              if tag.is_empty()
+                  || tag.contains('/')
+                  || tag.contains('?')
+                  || tag.contains('#')
+                  || tag.contains('-')
+                  || tag.contains('+')
+              {
+                  set_error_detail(format!("invalid latest Release tag redirect: {}", safe_detail(location)));
+                  return Err(UpdateError::InvalidRelease);
+              }
 
-    let version = Version::parse(tag).ok_or_else(|| {
-        set_error_detail(format!("invalid latest Release version: {}", safe_detail(tag)));
-        UpdateError::InvalidRelease
-    })?;
-    let version_text = format!("{}.{}.{}", version.major, version.minor, version.patch);
-    Ok((version, version_text))
-}
+              let version = Version::parse(tag).ok_or_else(|| {
+                  set_error_detail(format!("invalid latest Release version: {}", safe_detail(tag)));
+                  UpdateError::InvalidRelease
+              })?;
+              let version_text = format!("{}.{}.{}", version.major, version.minor, version.patch);
+              Ok((version, version_text))
+          }
 
-fn release_update_for_version(version: &str) -> ReleaseUpdate {
-    ReleaseUpdate {
-        version: version.to_string(),
-        executable_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{EXE_ASSET_NAME}"),
-        checksum_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{CHECKSUM_ASSET_NAME}"),
-    }
-}
+          fn release_update_for_version(version: &str) -> ReleaseUpdate {
+              ReleaseUpdate {
+                  version: version.to_string(),
+                  executable_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{EXE_ASSET_NAME}"),
+                  checksum_url: format!("{RELEASE_ASSET_PREFIX}v{version}/{CHECKSUM_ASSET_NAME}"),
+              }
+          }
 
-fn build_discovery_agent() -> Result<ureq::Agent, UpdateError> {
-    let tls = native_tls::TlsConnector::new().map_err(|error| {
-        let detail = format!("TLS initialization failed: {}", safe_detail(&error));
-        set_error_detail(detail.clone());
-        diagnose::log(format!("updater: {detail}"));
-        UpdateError::CheckFailed
-    })?;
-    Ok(ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(UPDATE_TIMEOUT_SECS))
-        .redirects(0)
-        .tls_connector(Arc::new(tls))
-        .build())
-}
-'''
+          fn build_discovery_agent() -> Result<ureq::Agent, UpdateError> {
+              let tls = native_tls::TlsConnector::new().map_err(|error| {
+                  let detail = format!("TLS initialization failed: {}", safe_detail(&error));
+                  set_error_detail(detail.clone());
+                  diagnose::log(format!("updater: {detail}"));
+                  UpdateError::CheckFailed
+              })?;
+              Ok(ureq::AgentBuilder::new()
+                  .timeout(Duration::from_secs(UPDATE_TIMEOUT_SECS))
+                  .redirects(0)
+                  .tls_connector(Arc::new(tls))
+                  .build())
+          }
+          '''
           s = s[:start] + replacement + s[end:]
 
-          old_request = '''fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
-    agent
-        .get(url)
-        .set(
-            "User-Agent",
-            &format!("CodexUsage-Updater/{}", env!("CARGO_PKG_VERSION")),
-        )
-        .set("Accept", "application/vnd.github+json")
-}
-'''
-          new_request = '''fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
-    agent
-        .get(url)
-        .set(
-            "User-Agent",
-            &format!("CodexUsage-Updater/{}", env!("CARGO_PKG_VERSION")),
-        )
-        .set("Accept", "*/*")
-}
-'''
-          s = s.replace(old_request, new_request)
+          s = s.replace('.set("Accept", "application/vnd.github+json")', '.set("Accept", "*/*")')
 
           prep_start = s.index('fn prepare_update() -> Result<UpdateOutcome, UpdateError> {')
           prep_end = s.index('\nfn prepare_downloaded_package(', prep_start)
           new_prepare = r'''fn prepare_update() -> Result<UpdateOutcome, UpdateError> {
-    let current_text = env!("CARGO_PKG_VERSION");
-    diagnose::log(format!("updater: checking latest Release current={current_text}"));
-    let current = Version::parse(current_text).ok_or(UpdateError::InvalidRelease)?;
+              let current_text = env!("CARGO_PKG_VERSION");
+              diagnose::log(format!("updater: checking latest Release current={current_text}"));
+              let current = Version::parse(current_text).ok_or(UpdateError::InvalidRelease)?;
 
-    let discovery_agent = build_discovery_agent()?;
-    let release_response = request_builder(&discovery_agent, LATEST_RELEASE_URL)
-        .call()
-        .map_err(|error| {
-            let detail = format!("GitHub latest Release redirect request failed: {}", ureq_error_detail(error));
-            set_error_detail(detail.clone());
-            diagnose::log(format!("updater: {detail}"));
-            UpdateError::CheckFailed
-        })?;
+              let discovery_agent = build_discovery_agent()?;
+              let release_response = request_builder(&discovery_agent, LATEST_RELEASE_URL)
+                  .call()
+                  .map_err(|error| {
+                      let detail = format!("GitHub latest Release redirect request failed: {}", ureq_error_detail(error));
+                      set_error_detail(detail.clone());
+                      diagnose::log(format!("updater: {detail}"));
+                      UpdateError::CheckFailed
+                  })?;
 
-    let status = release_response.status();
-    if !matches!(status, 301 | 302 | 303 | 307 | 308) {
-        let detail = format!("GitHub latest Release endpoint returned unexpected HTTP {status}");
-        set_error_detail(detail.clone());
-        diagnose::log(format!("updater: {detail}"));
-        return Err(UpdateError::InvalidRelease);
-    }
-    let location = release_response.header("Location").ok_or_else(|| {
-        set_error_detail("GitHub latest Release redirect is missing Location header");
-        UpdateError::InvalidRelease
-    })?;
-    let (latest, latest_text) = parse_release_redirect(location)?;
-    diagnose::log(format!(
-        "updater: latest release tag=v{latest_text} current={current_text} discovery=github-redirect"
-    ));
+              let status = release_response.status();
+              if !matches!(status, 301 | 302 | 303 | 307 | 308) {
+                  let detail = format!("GitHub latest Release endpoint returned unexpected HTTP {status}");
+                  set_error_detail(detail.clone());
+                  diagnose::log(format!("updater: {detail}"));
+                  return Err(UpdateError::InvalidRelease);
+              }
+              let location = release_response.header("Location").ok_or_else(|| {
+                  set_error_detail("GitHub latest Release redirect is missing Location header");
+                  UpdateError::InvalidRelease
+              })?;
+              let (latest, latest_text) = parse_release_redirect(location)?;
+              diagnose::log(format!(
+                  "updater: latest release tag=v{latest_text} current={current_text} discovery=github-redirect"
+              ));
 
-    if latest <= current {
-        diagnose::log("updater: current version is already latest");
-        return Ok(UpdateOutcome::Current {
-            version: current_text.to_string(),
-        });
-    }
+              if latest <= current {
+                  diagnose::log("updater: current version is already latest");
+                  return Ok(UpdateOutcome::Current {
+                      version: current_text.to_string(),
+                  });
+              }
 
-    let update = release_update_for_version(&latest_text);
-    let agent = build_agent()?;
-    let staging_dir = unique_staging_dir();
-    fs::create_dir_all(&staging_dir).map_err(|error| {
-        diagnose::log_error("updater: unable to create staging directory", error);
-        UpdateError::DownloadFailed
-    })?;
+              let update = release_update_for_version(&latest_text);
+              let agent = build_agent()?;
+              let staging_dir = unique_staging_dir();
+              fs::create_dir_all(&staging_dir).map_err(|error| {
+                  diagnose::log_error("updater: unable to create staging directory", error);
+                  UpdateError::DownloadFailed
+              })?;
 
-    match prepare_downloaded_package(&agent, update, staging_dir.clone()) {
-        Ok(package) => Ok(UpdateOutcome::Ready(package)),
-        Err(error) => {
-            let _ = fs::remove_dir_all(staging_dir);
-            Err(error)
-        }
-    }
-}
-'''
+              match prepare_downloaded_package(&agent, update, staging_dir.clone()) {
+                  Ok(package) => Ok(UpdateOutcome::Ready(package)),
+                  Err(error) => {
+                      let _ = fs::remove_dir_all(staging_dir);
+                      Err(error)
+                  }
+              }
+          }
+          '''
           s = s[:prep_start] + new_prepare + s[prep_end:]
 
           tests_start = s.index('    fn release_json(', s.index('#[cfg(test)]'))
           tests_end = s.index('    #[test]\n    fn checksum_parser_accepts_standard_release_line()', tests_start)
           new_tests = r'''    #[test]
-    fn numeric_version_order_handles_two_digit_patch() {
-        assert!(Version::parse("1.0.10").unwrap() > Version::parse("1.0.9").unwrap());
-    }
+              fn numeric_version_order_handles_two_digit_patch() {
+                  assert!(Version::parse("1.0.10").unwrap() > Version::parse("1.0.9").unwrap());
+              }
 
-    #[test]
-    fn equal_version_is_not_newer() {
-        assert_eq!(Version::parse("1.0.2"), Version::parse("1.0.2"));
-    }
+              #[test]
+              fn equal_version_is_not_newer() {
+                  assert_eq!(Version::parse("1.0.2"), Version::parse("1.0.2"));
+              }
 
-    #[test]
-    fn leading_v_is_accepted_for_release_tag() {
-        assert_eq!(
-            Version::parse_tag("v1.0.3"),
-            Some(Version { major: 1, minor: 0, patch: 3 })
-        );
-    }
+              #[test]
+              fn leading_v_is_accepted_for_release_tag() {
+                  assert_eq!(
+                      Version::parse_tag("v1.0.3"),
+                      Some(Version { major: 1, minor: 0, patch: 3 })
+                  );
+              }
 
-    #[test]
-    fn release_redirect_accepts_absolute_and_relative_fork_tags() {
-        let (absolute, text) = parse_release_redirect(
-            "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.10",
-        )
-        .unwrap();
-        assert_eq!(absolute, Version::parse("1.0.10").unwrap());
-        assert_eq!(text, "1.0.10");
+              #[test]
+              fn release_redirect_accepts_absolute_and_relative_fork_tags() {
+                  let (absolute, text) = parse_release_redirect(
+                      "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.10",
+                  )
+                  .unwrap();
+                  assert_eq!(absolute, Version::parse("1.0.10").unwrap());
+                  assert_eq!(text, "1.0.10");
 
-        let (relative, text) = parse_release_redirect(
-            "/walle-2017/codex-usage-monitor/releases/tag/v1.0.3",
-        )
-        .unwrap();
-        assert_eq!(relative, Version::parse("1.0.3").unwrap());
-        assert_eq!(text, "1.0.3");
-    }
+                  let (relative, text) = parse_release_redirect(
+                      "/walle-2017/codex-usage-monitor/releases/tag/v1.0.3",
+                  )
+                  .unwrap();
+                  assert_eq!(relative, Version::parse("1.0.3").unwrap());
+                  assert_eq!(text, "1.0.3");
+              }
 
-    #[test]
-    fn release_redirect_rejects_other_repo_and_prerelease_tags() {
-        assert_eq!(
-            parse_release_redirect(
-                "https://github.com/upstream-ray/codex-usage-monitor/releases/tag/v9.9.9"
-            )
-            .unwrap_err(),
-            UpdateError::InvalidRelease
-        );
-        assert_eq!(
-            parse_release_redirect(
-                "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.3-beta.1"
-            )
-            .unwrap_err(),
-            UpdateError::InvalidRelease
-        );
-    }
+              #[test]
+              fn release_redirect_rejects_other_repo_and_prerelease_tags() {
+                  assert_eq!(
+                      parse_release_redirect(
+                          "https://github.com/upstream-ray/codex-usage-monitor/releases/tag/v9.9.9"
+                      )
+                      .unwrap_err(),
+                      UpdateError::InvalidRelease
+                  );
+                  assert_eq!(
+                      parse_release_redirect(
+                          "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.3-beta.1"
+                      )
+                      .unwrap_err(),
+                      UpdateError::InvalidRelease
+                  );
+              }
 
-    #[test]
-    fn release_update_builds_exact_fork_asset_urls() {
-        let update = release_update_for_version("1.0.3");
-        assert_eq!(update.version, "1.0.3");
-        assert_eq!(
-            update.executable_url,
-            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe"
-        );
-        assert_eq!(
-            update.checksum_url,
-            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe.sha256"
-        );
-    }
+              #[test]
+              fn release_update_builds_exact_fork_asset_urls() {
+                  let update = release_update_for_version("1.0.3");
+                  assert_eq!(update.version, "1.0.3");
+                  assert_eq!(
+                      update.executable_url,
+                      "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe"
+                  );
+                  assert_eq!(
+                      update.checksum_url,
+                      "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe.sha256"
+                  );
+              }
 
-    #[test]
-    fn json_http_error_extracts_message_without_preview() {
-        let (message, preview) = diagnostic_body_summary(
-            Some("application/json; charset=utf-8"),
-            r#"{"message":"API rate limit exceeded"}"#,
-        );
-        assert_eq!(message.as_deref(), Some("API rate limit exceeded"));
-        assert!(preview.is_none());
-    }
+              #[test]
+              fn json_http_error_extracts_message_without_preview() {
+                  let (message, preview) = diagnostic_body_summary(
+                      Some("application/json; charset=utf-8"),
+                      r#"{"message":"API rate limit exceeded"}"#,
+                  );
+                  assert_eq!(message.as_deref(), Some("API rate limit exceeded"));
+                  assert!(preview.is_none());
+              }
 
-    #[test]
-    fn non_json_http_error_keeps_bounded_sanitized_preview() {
-        let (message, preview) = diagnostic_body_summary(
-            Some("text/html"),
-            "proxy denied https://user:secret@example.com/request",
-        );
-        assert!(message.is_none());
-        let preview = preview.expect("preview");
-        assert!(preview.contains("<redacted>@example.com"));
-        assert!(!preview.contains("secret"));
-    }
+              #[test]
+              fn non_json_http_error_keeps_bounded_sanitized_preview() {
+                  let (message, preview) = diagnostic_body_summary(
+                      Some("text/html"),
+                      "proxy denied https://user:secret@example.com/request",
+                  );
+                  assert!(message.is_none());
+                  let preview = preview.expect("preview");
+                  assert!(preview.contains("<redacted>@example.com"));
+                  assert!(!preview.contains("secret"));
+              }
 
-    #[test]
-    fn malformed_version_is_rejected() {
-        assert!(Version::parse("1.0").is_none());
-        assert!(Version::parse("1.0.2.1").is_none());
-        assert!(Version::parse("1.0.x").is_none());
-    }
+              #[test]
+              fn malformed_version_is_rejected() {
+                  assert!(Version::parse("1.0").is_none());
+                  assert!(Version::parse("1.0.2.1").is_none());
+                  assert!(Version::parse("1.0.x").is_none());
+              }
 
-'''
+          '''
           s = s[:tests_start] + new_tests + s[tests_end:]
-
           p.write_text(s, encoding='utf-8')
+          '@ | python -
 
       - name: Verify redirect discovery
         shell: pwsh
@@ -284,13 +266,13 @@ fn build_discovery_agent() -> Result<ureq::Agent, UpdateError> {
           cargo test updater::tests -- --nocapture
           cargo test
           cargo clippy -- -D warnings
+
       - name: Commit fix and remove one-time workflow
         shell: pwsh
         run: |
-          git config user.name "walle-2017"
-          git config user.email "1220754120@qq.com"
-          git add src/updater.rs
-          git commit -m "fix: avoid GitHub API rate limit for update discovery"
-          git rm .github/workflows/apply-release-redirect-discovery-once.yml
-          git commit -m "ci: remove one-time release discovery workflow"
+          Remove-Item '.github/workflows/apply-release-redirect-discovery-once.yml'
+          git config user.name 'walle-2017'
+          git config user.email '1220754120@qq.com'
+          git add src/updater.rs .github/workflows/apply-release-redirect-discovery-once.yml
+          git commit -m 'fix: avoid GitHub API rate limit for update discovery'
           git push origin HEAD:feature/auto-update
