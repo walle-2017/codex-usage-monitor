@@ -4,7 +4,7 @@ $source = Get-Content -Raw (Join-Path $PSScriptRoot '..\src\window.rs')
 
 $moveMatch = [regex]::Match(
     $source,
-    '(?s)WM_MOUSEMOVE\s*=>\s*\{(?<body>.*?)\n\s*WM_LBUTTONUP\s*=>'
+    '(?s)WM_MOUSEMOVE\s*=>\s*\{(?<body>.*?)\n\s*WM_CANCELMODE\s*=>'
 )
 if (-not $moveMatch.Success) {
     throw 'Unable to locate WM_MOUSEMOVE handler.'
@@ -13,6 +13,19 @@ if (-not $moveMatch.Success) {
 $moveBody = $moveMatch.Groups['body'].Value
 if ($moveBody -match 'current_appearance_preset\s*\(') {
     throw 'WM_MOUSEMOVE must not re-lock STATE through current_appearance_preset() while dragging.'
+}
+
+if ($moveBody -notmatch 'taskbar_at_point\s*\(') {
+    throw 'WM_MOUSEMOVE must detect the taskbar under the cursor while dragging.'
+}
+if ($moveBody -notmatch 'attach_to_taskbar\s*\(\s*hwnd\s*,\s*target_index\s*\)') {
+    throw 'WM_MOUSEMOVE must reattach the widget as soon as the cursor enters another taskbar.'
+}
+if ($moveBody -notmatch 'offset_for_drop_point\s*\(') {
+    throw 'WM_MOUSEMOVE must preserve the cursor grab point when switching taskbars.'
+}
+if ($moveBody -notmatch 'SetCapture\s*\(\s*hwnd\s*\)') {
+    throw 'WM_MOUSEMOVE must restore mouse capture after a live taskbar switch.'
 }
 
 $hitTestMatch = [regex]::Match(
@@ -53,4 +66,4 @@ if ($source -notmatch 'WM_CANCELMODE') {
     throw 'Drag handling must clear dragging state when Windows cancels the interaction (WM_CANCELMODE).'
 }
 
-Write-Host 'PASS: taskbar state-lock paths avoid re-entrant locking, use a move cursor, and release cancelled drag capture.'
+Write-Host 'PASS: taskbar dragging switches live across taskbars, preserves capture/grab position, avoids re-entrant locking, and clears cancelled drag state.'

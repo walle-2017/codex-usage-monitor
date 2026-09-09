@@ -1,23 +1,37 @@
 # Fork 说明
 
-本文档定义 `walle-2017/codex-usage-monitor` 相对上游仓库的**最终维护基线**。从 `v1.0.0` 起，本 Fork 以 Codex-only、最小运行时权限、稳定任务栏显示和可审计网络行为为核心目标。
+本文档定义 `walle-2017/codex-usage-monitor` 相对上游仓库的**最终维护基线**。当前正式版本为 `v1.0.1`，继续以 Codex-only、最小运行时权限、稳定任务栏显示和可审计网络行为为核心目标。
 
 本文档只描述当前仍然有效的差异和约束，不记录中间重构过程。
 
-## 1. v1.0.0 基线
+## 1. v1.0.1 更新内容
 
-当前 Fork 的正式产品基线为：
+正式版本：
 
 ```text
-版本：1.0.0
-Tag：v1.0.0
+版本：1.0.1
+Tag：v1.0.1
 运行时范围：Codex-only
 平台：Windows 10 / Windows 11
 ```
 
-`Cargo.toml` 是产品版本的权威来源；`Cargo.lock` 根包版本、程序右键菜单中的只读 `v1.0.0`、以及 Windows EXE 的 FileVersion/ProductVersion 均与该版本保持一致。
+`v1.0.1` 在 `v1.0.0` 安全基线之上优化了多显示器任务栏拖拽交互：
 
-## 2. Codex-only 运行时
+- 支持**实时跨任务栏拖动**；
+- 按住拖动手柄从任务栏 A 移入任务栏 B 时，无需松开鼠标，组件会立即重新挂载到 B 并继续跟随鼠标；
+- 不松开鼠标再从 B 拖回 A 时，同样会立即实时切回；
+- 跨任务栏切换时保留原始鼠标抓取点，避免组件突然以中心点吸附到鼠标位置；
+- `SetParent` 重新挂载后恢复鼠标捕获和拖动状态，避免跨屏过程中拖拽中断；
+- 鼠标位于所有任务栏之外时，组件仍限制在当前任务栏范围内，不变为桌面悬浮窗；
+- 最终的 `taskbar_index` 与 `tray_offset` 仍在拖动结束后统一持久化，不在每次 `WM_MOUSEMOVE` 时频繁写入设置文件。
+
+`Cargo.toml` 是产品版本的权威来源；`Cargo.lock` 根包版本、程序右键菜单中的只读版本号，以及 Windows EXE 的 FileVersion/ProductVersion 均由该版本保持一致。
+
+## 2. v1.0.0 安全基线
+
+`v1.0.0` 建立了当前 Fork 的 Codex-only 与安全运行时基线。`v1.0.1` 不改变这些安全约束，只增加任务栏交互改进。
+
+## 3. Codex-only 运行时
 
 程序运行时只查询 Codex 用量，不再提供多 Provider 选择、轮询、绘制或托盘切换逻辑。
 
@@ -39,7 +53,7 @@ ChatGPT Codex usage endpoint
 
 任务栏百分比、进度长度和状态色统一使用**剩余额度**语义，不因界面语言改变含义。
 
-## 3. Codex CLI 自动刷新必须保持禁用
+## 4. Codex CLI 自动刷新必须保持禁用
 
 这是本 Fork 最重要的安全约束。
 
@@ -80,7 +94,7 @@ scripts/assert-no-codex-cli-refresh.ps1
 
 用于持续锁定这一安全边界。
 
-## 4. auth.json 与网络请求
+## 5. auth.json 与网络请求
 
 默认凭据位置：
 
@@ -106,7 +120,7 @@ $CODEX_HOME/auth.json
 
 Bearer Token 会作为 HTTPS 认证信息发送到 Codex 用量接口，这是实时查询额度所必需的行为。使用代理时应确保代理可信。
 
-## 5. Windows system proxy 支持
+## 6. Windows system proxy 支持
 
 若用户已经显式设置：
 
@@ -135,7 +149,7 @@ ProxyServer
 
 当前不实现 PAC、WPAD 或“自动检测设置”。
 
-## 6. 任务栏 UI 最终状态
+## 7. 任务栏 UI 最终状态
 
 任务栏只保留两套外观：
 
@@ -149,7 +163,7 @@ ProxyServer
 - 支持 Windows 明/暗主题；
 - 支持 Windows 小任务栏布局；
 - 支持多显示器任务栏；
-- 左侧拖动手柄支持安全捕获和取消；
+- 左侧拖动手柄支持安全捕获、取消和实时跨任务栏拖动；
 - 保留 Explorer 重启 watchdog；
 - 保留 single-instance mutex；
 - 任务栏组件在进程运行期间始终显示，不存在隐藏/显示开关；
@@ -163,7 +177,7 @@ ProxyServer
 
 当前持久化内容包括任务栏位置/屏幕、刷新频率、语言、外观、5h/7d 行显示、额度提醒阈值及提醒去重状态。
 
-## 7. 程序内更新已删除
+## 8. 程序内更新已删除
 
 当前 Fork 不执行后台版本检查，也没有程序内 updater。
 
@@ -177,7 +191,7 @@ walle-2017/codex-usage-monitor
 
 不得重新指向 upstream Release。
 
-## 8. 安装模型
+## 9. 安装模型
 
 正式 Release 包至少应提供：
 
@@ -196,7 +210,7 @@ PowerShell 安装程序按用户安装到：
 
 安装前校验 SHA256，不要求管理员权限。普通卸载保留 `%APPDATA%\CodexUsage\settings.json`，显式使用 `-RemoveSettings` 才删除设置。
 
-## 9. CI 安全回归
+## 10. CI 安全回归
 
 `.github/workflows/safe-build.yml` 使用：
 
@@ -226,7 +240,7 @@ cargo build --release
 
 成功后生成 Windows x64 Artifact，并附带 EXE SHA256。
 
-## 10. 同步 upstream 时必须保护的边界
+## 11. 同步 upstream 时必须保护的边界
 
 以后同步上游代码时，至少逐项确认：
 
@@ -235,13 +249,13 @@ cargo build --release
 3. 不得恢复程序内更新器。
 4. 不得恢复任务栏组件隐藏/显示状态机。
 5. 不得覆盖 Windows system proxy 支持。
-6. 不得破坏 Explorer watchdog、single-instance mutex、拖动安全和小任务栏适配。
+6. 不得破坏 Explorer watchdog、single-instance mutex、实时跨任务栏拖动、拖动安全和小任务栏适配。
 7. 安装脚本不得重新指向 upstream Release。
 8. 所有语言必须保持相同的剩余额度语义。
 9. 版本号必须继续由单一包版本源派生。
 10. 合并前必须通过 Safe Windows Build 全部检查。
 
-## 11. 上游与许可证
+## 12. 上游与许可证
 
 本项目继续遵守 MIT License，并保留原始 [LICENSE](LICENSE) 与版权信息。
 
