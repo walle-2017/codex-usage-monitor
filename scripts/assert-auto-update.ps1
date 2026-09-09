@@ -5,9 +5,11 @@ $ErrorActionPreference = 'Stop'
 $WindowPath = Join-Path $PSScriptRoot '..\src\window.rs'
 $MainPath = Join-Path $PSScriptRoot '..\src\main.rs'
 $UpdaterPath = Join-Path $PSScriptRoot '..\src\updater.rs'
+$LocalizationPath = Join-Path $PSScriptRoot '..\src\localization\mod.rs'
 
 $window = Get-Content -Raw -LiteralPath $WindowPath
 $main = Get-Content -Raw -LiteralPath $MainPath
+$localization = Get-Content -Raw -LiteralPath $LocalizationPath
 
 if (-not (Test-Path -LiteralPath $UpdaterPath -PathType Leaf)) {
     throw 'src/updater.rs is missing.'
@@ -54,6 +56,31 @@ Assert-Match $updater 'body_message' 'JSON HTTP failures must expose safe messag
 Assert-Match $updater 'body_preview' 'Non-JSON HTTP failures must expose a bounded safe preview.'
 Assert-Match $updater 'redact_url_userinfo' 'HTTP diagnostics must redact URL credentials.'
 
+# Normal successful updates must expose progress through Win32 UI notifications.
+Assert-Match $updater 'WM_APP_UPDATE_PROGRESS' 'Updater must define a progress message distinct from final result.'
+Assert-Match $updater 'enum\s+UpdateProgress' 'Updater must model update progress states.'
+Assert-Match $updater 'Checking' 'Updater must report the checking stage.'
+Assert-Match $updater 'Downloading\s*\{\s*version:\s*String\s*\}' 'Updater must report discovered version while downloading.'
+Assert-Match $updater 'Restarting\s*\{\s*version:\s*String\s*\}' 'Updater must report verified update before restart.'
+Assert-Match $updater 'fn\s+post_progress\s*\(' 'Updater worker must post progress to the UI thread.'
+Assert-Match $window 'updater::WM_APP_UPDATE_PROGRESS\s*=>' 'Window procedure must handle update progress.'
+Assert-Match $window 'UpdateProgress::Checking' 'Window must notify while checking.'
+Assert-Match $window 'UpdateProgress::Downloading' 'Window must notify while downloading.'
+Assert-Match $window 'UpdateProgress::Restarting' 'Window must notify immediately before restart.'
+
+# Successful replacement must leave a one-shot marker so the new process can announce success.
+Assert-Match $updater 'UPDATE_SUCCESS_MARKER_SUFFIX' 'Updater must define a one-shot success marker.'
+Assert-Match $updater 'fn\s+success_marker_path\s*\(' 'Updater must derive marker path beside the executable.'
+Assert-Match $updater 'fn\s+take_successful_update_version\s*\(' 'New process must consume the success marker once.'
+Assert-Match $updater 'Remove-Item -LiteralPath \$SuccessMarker' 'Replacement helper must remove stale success markers before replacement.'
+Assert-Match $updater 'Set-Content -LiteralPath \$SuccessMarker' 'Replacement helper must write the marker only after successful replacement.'
+Assert-Match $window 'take_successful_update_version' 'Window startup must consume update success state.'
+Assert-Match $window 'update_success' 'Window must show a localized successful-update notification.'
+
+foreach ($field in @('update_checking','update_downloading','update_restarting','update_success')) {
+    Assert-Match $localization ("pub " + $field + ":") "Localization Strings must define $field."
+}
+
 if ($updater -match 'upstream-ray/codex-usage-monitor|ShumTin/CodexTray') {
     throw 'Updater must never use upstream/original repositories.'
 }
@@ -61,4 +88,4 @@ foreach ($pattern in @('codex login','codex auth','refresh_token','auth\.json.*w
     if ($updater -match $pattern) { throw "Forbidden credential/CLI behavior: $pattern" }
 }
 
-Write-Host 'PASS: rate-limit-free Release discovery, secure downloads, diagnostics, checksum and rollback contracts are present.'
+Write-Host 'PASS: rate-limit-free Release discovery, visible update progress, secure downloads, diagnostics, checksum and rollback contracts are present.'
