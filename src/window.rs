@@ -27,6 +27,7 @@ use crate::native_interop::{
 use crate::poller;
 use crate::theme;
 use crate::tray_icon;
+use crate::updater;
 
 /// Wrapper to make HWND sendable across threads (safe for PostMessage usage)
 #[derive(Clone, Copy)]
@@ -108,6 +109,7 @@ const IDM_LANG_TRADITIONAL_CHINESE: u16 = 48;
 const IDM_LANG_RUSSIAN: u16 = 49;
 const IDM_LANG_PORTUGUESE_BRAZIL: u16 = 50;
 const IDM_LANG_SIMPLIFIED_CHINESE: u16 = 51;
+const IDM_CHECK_UPDATE: u16 = 60;
 const IDM_SHOW_SESSION_WINDOW: u16 = 71;
 const IDM_SHOW_WEEKLY_WINDOW: u16 = 72;
 const IDM_ALERT_OFF: u16 = 80;
@@ -2354,6 +2356,63 @@ unsafe extern "system" fn wnd_proc(
             }
             LRESULT(0)
         }
+        updater::WM_APP_UPDATE_RESULT => {
+            if let Some(result) = updater::take_ui_result() {
+                match result {
+                    updater::UpdateUiResult::Current { version } => {
+                        let strings = {
+                            let state = lock_state();
+                            state
+                                .as_ref()
+                                .map(|s| s.language.strings())
+                                .unwrap_or_else(|| LanguageId::English.strings())
+                        };
+                        let message = format!("{} v{}", strings.update_current, version);
+                        tray_icon::notify_balloon(
+                            hwnd,
+                            tray_icon::TrayIconKind::Codex,
+                            strings.update_title,
+                            &message,
+                        );
+                    }
+                    updater::UpdateUiResult::Failed(error) => {
+                        let strings = {
+                            let state = lock_state();
+                            state
+                                .as_ref()
+                                .map(|s| s.language.strings())
+                                .unwrap_or_else(|| LanguageId::English.strings())
+                        };
+                        let message = match error {
+                            updater::UpdateError::CheckFailed
+                            | updater::UpdateError::InvalidRelease
+                            | updater::UpdateError::MissingAsset => strings.update_check_failed,
+                            updater::UpdateError::DownloadFailed => strings.update_download_failed,
+                            updater::UpdateError::InvalidChecksum
+                            | updater::UpdateError::ChecksumMismatch => {
+                                strings.update_checksum_failed
+                            }
+                            updater::UpdateError::TargetNotWritable => {
+                                strings.update_target_not_writable
+                            }
+                            updater::UpdateError::HelperLaunchFailed => {
+                                strings.update_helper_failed
+                            }
+                        };
+                        tray_icon::notify_balloon(
+                            hwnd,
+                            tray_icon::TrayIconKind::Codex,
+                            strings.update_title,
+                            message,
+                        );
+                    }
+                    updater::UpdateUiResult::ReadyToRestart => {
+                        let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                    }
+                }
+            }
+            LRESULT(0)
+        }
         WM_RBUTTONUP => {
             show_context_menu(hwnd);
             LRESULT(0)
@@ -2385,6 +2444,9 @@ unsafe extern "system" fn wnd_proc(
                         native_interop::unhook_win_event(h);
                     }
                     PostQuitMessage(0);
+                }
+                IDM_CHECK_UPDATE => {
+                    let _ = updater::start_update(hwnd);
                 }
                 IDM_RESET_POSITION => {
                     {
@@ -2852,8 +2914,8 @@ fn show_context_menu(hwnd: HWND) {
         let version_label = native_interop::wide_str(&format!("v{}", env!("CARGO_PKG_VERSION")));
         let _ = AppendMenuW(
             settings_menu,
-            MF_GRAYED,
-            0,
+            MENU_ITEM_FLAGS(0),
+            IDM_CHECK_UPDATE as usize,
             PCWSTR::from_raw(version_label.as_ptr()),
         );
 

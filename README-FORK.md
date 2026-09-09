@@ -262,3 +262,8 @@ cargo build --release
 本项目继续遵守 MIT License，并保留原始 [LICENSE](LICENSE) 与版权信息。
 
 Codex Usage 源自 [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) 及其后续衍生工作。当前 Fork 的改动由本仓库独立维护，与原作者、上游维护者或 OpenAI 不存在隶属或背书关系。
+
+## In-app update development
+
+The `feature/auto-update` implementation adds a manually initiated in-app update path from this Fork's latest stable GitHub Release. The executable and `codex-usage.exe.sha256` are required, SHA256 is verified before exit, and replacement uses a generated local rollback helper for both installed and portable writable locations. No startup or periodic update polling is introduced.
+

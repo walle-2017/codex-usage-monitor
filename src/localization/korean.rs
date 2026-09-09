@@ -24,4 +24,11 @@ pub(super) const STRINGS: Strings = Strings {
     second_suffix: "초",
     codex_token_expired_title: "Codex 인증 오류",
     codex_token_expired_body: "터미널에서 'codex'를 실행하고 로그인 안내를 따르세요. 그런 다음 이 앱을 새로 고치거나 다시 시작하세요.",
+    update_title: "Codex Usage 업데이트",
+    update_current: "이미 최신 버전입니다",
+    update_check_failed: "업데이트 확인에 실패했습니다",
+    update_download_failed: "업데이트 다운로드에 실패했습니다",
+    update_checksum_failed: "업데이트 파일 검증에 실패했습니다",
+    update_target_not_writable: "프로그램 폴더에 쓸 수 없습니다",
+    update_helper_failed: "업데이터를 시작하지 못했습니다",
 };

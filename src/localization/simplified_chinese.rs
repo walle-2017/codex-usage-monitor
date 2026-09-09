@@ -24,4 +24,11 @@ pub(super) const STRINGS: Strings = Strings {
     second_suffix: "秒",
     codex_token_expired_title: "Codex 登录已失效",
     codex_token_expired_body: "请在终端中运行 'codex' 并按提示重新登录。完成后请刷新或重启本工具。",
+    update_title: "Codex Usage 更新",
+    update_current: "当前已是最新版本",
+    update_check_failed: "检查更新失败",
+    update_download_failed: "下载更新失败",
+    update_checksum_failed: "更新文件校验失败",
+    update_target_not_writable: "当前程序目录无法写入",
+    update_helper_failed: "启动更新程序失败",
 };

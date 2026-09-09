@@ -24,4 +24,11 @@ pub(super) const STRINGS: Strings = Strings {
     second_suffix: "s",
     codex_token_expired_title: "Codex-Authentifizierungsfehler",
     codex_token_expired_body: "Fuhren Sie 'codex' in einem Terminal aus und folgen Sie den Anmeldeanweisungen. Aktualisieren oder starten Sie diese App anschliessend neu.",
+    update_title: "Codex Usage-Update",
+    update_current: "Die neueste Version ist bereits installiert",
+    update_check_failed: "Die Suche nach Updates ist fehlgeschlagen",
+    update_download_failed: "Das Update konnte nicht heruntergeladen werden",
+    update_checksum_failed: "Die Prüfung der Update-Datei ist fehlgeschlagen",
+    update_target_not_writable: "Das Programmverzeichnis ist nicht beschreibbar",
+    update_helper_failed: "Der Updater konnte nicht gestartet werden",
 };

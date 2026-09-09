@@ -140,3 +140,8 @@ codex-usage.exe --diagnose
 Codex Usage 源自 [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) 以及后续上游工作。当前 Fork 独立维护，与上游维护者或 OpenAI 不存在隶属或背书关系。
 
 Fork 的安全约束和后续同步基线见 [README-FORK.md](README-FORK.md)。
+
+### 应用内更新
+
+**设置**中的版本号可点击。点击后只检查 `walle-2017/codex-usage-monitor` 当前 Fork 的最新稳定 Release。发现新版本时，程序会下载 `codex-usage.exe` 与 `codex-usage.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。当前版本不会在启动时或后台定时检查更新。
+

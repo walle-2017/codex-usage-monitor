@@ -24,8 +24,6 @@ $Forbidden = @(
     'gemini:antigravity',
     'WinGet',
     'winget upgrade',
-    'self-update',
-    '自更新',
     'widget visibility',
     '组件显示状态',
     'Left-click the tray icon to toggle',
@@ -67,5 +65,12 @@ if (-not $ForkReadme.Contains('system proxy') -and -not $ForkReadme.Contains('�
     throw 'README-FORK.md must retain the Windows system proxy behavior.'
 }
 
-Write-Output 'PASS: user-facing documentation matches the Codex-only v1.0.2 product state.'
+if (-not $Joined.Contains('walle-2017/codex-usage-monitor') -or -not $Joined.Contains('codex-usage.exe.sha256')) {
+    throw 'User-facing docs must describe the pinned fork Release updater and checksum asset.'
+}
+if (-not $Readme.Contains('In-app update check') -or -not $ReadmeZh.Contains('应用内更新')) {
+    throw 'Primary READMEs must document the clickable in-app update flow.'
+}
+
+Write-Output 'PASS: user-facing documentation matches the Codex-only v1.0.2 product state with manual in-app updates.'
 exit 0

@@ -95,3 +95,8 @@ Codex Usage has no background update checker or in-app updater. Upgrades are exp
 For an installed copy, download/run `install.ps1` from the fork Release you intend to install. The installer verifies the executable SHA256 before replacement and restores the previous executable if replacement fails.
 
 For a portable copy, verify the published SHA256 and replace `codex-usage.exe` manually while the old process is not running.
+
+## In-app update fails
+
+The running version is left unchanged when the Release check, download, SHA256 verification, target-directory write preflight, or updater launch fails. Ensure GitHub is reachable through the same proxy environment used by Codex Usage and that the directory containing the running executable is writable. The updater does not request UAC elevation.
+

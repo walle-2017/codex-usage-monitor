@@ -140,3 +140,8 @@ This project is licensed under the MIT License. The original [LICENSE](LICENSE) 
 Codex Usage is derived from [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) and later upstream work. The current fork is maintained independently and is not affiliated with or endorsed by upstream maintainers or OpenAI.
 
 See [README-FORK.md](README-FORK.md) for the fork-specific safety and maintenance baseline.
+
+### In-app update check
+
+The version row in **Settings** is clickable. Clicking it checks only the latest stable Release of `walle-2017/codex-usage-monitor`. If a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. There is no startup or periodic background update check.
+

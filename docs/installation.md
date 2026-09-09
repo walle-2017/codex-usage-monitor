@@ -48,3 +48,8 @@ Current settings include taskbar position/screen, polling frequency, language, a
 The release executable is accompanied by `codex-usage.exe.sha256`. The PowerShell installer computes SHA256 for the staged executable and aborts installation if it does not match the expected release checksum.
 
 For the v1.0.0 baseline, the executable's Windows FileVersion/ProductVersion and the application's read-only version menu are both derived from the Cargo package version.
+
+## Updating from the running app
+
+Open the tray context menu, choose **Settings**, and click the displayed version. Codex Usage checks only the latest stable Release from `walle-2017/codex-usage-monitor`. A newer release is downloaded and SHA256-verified before the current process exits. Installed and portable writable locations are supported.
+
