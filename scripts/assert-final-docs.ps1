@@ -51,11 +51,11 @@ if (-not $Readme.Contains('https://github.com/walle-2017/codex-usage-monitor/rel
 if (-not $ReadmeZh.Contains('https://github.com/walle-2017/codex-usage-monitor/releases/latest')) {
     throw 'README.zh-CN.md must point installation downloads at the fork release page.'
 }
-if (-not $ForkReadme.Contains('1.0.1')) {
-    throw 'README-FORK.md must document the current 1.0.1 release.'
+if (-not $ForkReadme.Contains('1.0.2')) {
+    throw 'README-FORK.md must document the current 1.0.2 release.'
 }
-if (-not $ForkReadme.Contains('实时跨任务栏拖动')) {
-    throw 'README-FORK.md must document the v1.0.1 live cross-taskbar drag behavior.'
+if (-not $ForkReadme.Contains('drag_anchor_logical_x') -or -not $ForkReadme.Contains('DPI')) {
+    throw 'README-FORK.md must document the v1.0.2 DPI-aware drag-anchor behavior.'
 }
 if (-not $ForkReadme.Contains('Codex-only')) {
     throw 'README-FORK.md must describe the final Codex-only scope.'
@@ -67,5 +67,5 @@ if (-not $ForkReadme.Contains('system proxy') -and -not $ForkReadme.Contains('�
     throw 'README-FORK.md must retain the Windows system proxy behavior.'
 }
 
-Write-Output 'PASS: user-facing documentation matches the Codex-only v1.0.1 product state.'
+Write-Output 'PASS: user-facing documentation matches the Codex-only v1.0.2 product state.'
 exit 0
