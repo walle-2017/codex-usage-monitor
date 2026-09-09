@@ -6,6 +6,7 @@ on:
       - main
       - safe-no-codex-cli
       - codex-only-v1-cleanup
+      - feature/live-drag-anchor-v102
   pull_request:
     branches:
       - main
@@ -42,6 +43,10 @@ jobs:
       - name: Verify taskbar drag capture handling
         shell: pwsh
         run: ./scripts/assert-drag-handler-safe.ps1
+
+      - name: Verify live drag anchor handling
+        shell: pwsh
+        run: ./scripts/assert-live-drag-anchor.ps1
 
       - name: Verify compact taskbar UI contract
         shell: pwsh
