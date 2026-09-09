@@ -1,0 +1,31 @@
+name: Fix Live Drag Format
+
+on:
+  push:
+    branches:
+      - v1.0.1-live-drag
+    paths:
+      - '.github/workflows/fix-live-drag-format.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.0.1-live-drag
+          fetch-depth: 0
+      - name: Fix format
+        shell: pwsh
+        run: ./scripts/fix-live-drag-format.ps1
+      - name: Commit fix
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/window.rs
+          git commit -m "fix: keep live drag handler formatting valid"
+          git push origin HEAD:v1.0.1-live-drag
