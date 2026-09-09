@@ -6,121 +6,18 @@ on:
       - main
       - safe-no-codex-cli
       - codex-only-v1-cleanup
-      - fix-v1.0.1-capture
   pull_request:
     branches:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Apply v1.0.1 capture fix for branch push
-        if: github.event_name == 'push' && github.ref_name == 'fix-v1.0.1-capture'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $path = 'src/window.rs'
-          $source = Get-Content -Raw -LiteralPath $path
-          $nl = "`r`n"
-
-          $fieldRx = [regex]::new('(?m)^(?<i>\s*)drag_start_offset: i32,\r?$')
-          if (-not $fieldRx.IsMatch($source)) { throw 'drag_start_offset field not found.' }
-          $source = $fieldRx.Replace($source, '${i}drag_start_offset: i32,' + $nl + '${i}drag_reparenting: bool,', 1)
-
-          $initRx = [regex]::new('(?m)^(?<i>\s*)drag_start_offset: 0,\r?$')
-          if (-not $initRx.IsMatch($source)) { throw 'drag_start_offset initializer not found.' }
-          $source = $initRx.Replace($source, '${i}drag_start_offset: 0,' + $nl + '${i}drag_reparenting: false,', 1)
-
-          $moveRx = [regex]::new('(?s)(?<head>WM_MOUSEMOVE\s*=>\s*\{)(?<body>.*?)(?<tail>\r?\n\s*WM_CANCELMODE\s*=>)')
-          $moveMatch = $moveRx.Match($source)
-          if (-not $moveMatch.Success) { throw 'WM_MOUSEMOVE handler not found.' }
-          $body = $moveMatch.Groups['body'].Value
-
-          $trayRx = [regex]::new('(?m)^(?<i>\s*)s\.tray_offset = new_offset;\r?$')
-          if (-not $trayRx.IsMatch($body)) { throw 'Live-drag tray offset assignment not found.' }
-          $body = $trayRx.Replace($body, '${i}s.tray_offset = new_offset;' + $nl + '${i}s.drag_reparenting = true;', 1)
-
-          $attachRx = [regex]::new('(?m)^(?<i>\s*)if attach_to_taskbar\(hwnd, target_index\) \{\r?$')
-          if (-not $attachRx.IsMatch($body)) { throw 'Live-drag attach call not found.' }
-          $body = $attachRx.Replace($body, '${i}let _ = ReleaseCapture();' + $nl + $nl + '${i}if attach_to_taskbar(hwnd, target_index) {', 1)
-
-          $originRx = [regex]::new('(?m)^(?<i>\s*)s\.drag_start_offset = new_offset;\r?$')
-          if (-not $originRx.IsMatch($body)) { throw 'Live-drag origin reset not found.' }
-          $body = $originRx.Replace($body, '${i}s.drag_start_offset = new_offset;' + $nl + '${i}s.drag_reparenting = false;', 1)
-
-          $successRx = [regex]::new('(?m)^(?<i>\s*)SetCapture\(hwnd\);\r?\n\k<i>switched_taskbar = true;\r?\n(?<c>\s*)\}')
-          $successMatch = $successRx.Match($body)
-          if (-not $successMatch.Success) { throw 'Live-drag successful recapture block not found.' }
-          $i = $successMatch.Groups['i'].Value
-          $c = $successMatch.Groups['c'].Value
-          $replacement = $i + 'SetCapture(hwnd);' + $nl +
-              $i + 'switched_taskbar = true;' + $nl +
-              $c + '} else {' + $nl +
-              $i + 'let mut state = lock_state();' + $nl +
-              $i + 'if let Some(s) = state.as_mut() {' + $nl +
-              $i + '    s.drag_reparenting = false;' + $nl +
-              $i + '}' + $nl +
-              $i + 'SetCapture(hwnd);' + $nl +
-              $c + '}'
-          $body = $successRx.Replace($body, $replacement, 1)
-
-          $source = $source.Substring(0, $moveMatch.Groups['body'].Index) + $body +
-              $source.Substring($moveMatch.Groups['body'].Index + $moveMatch.Groups['body'].Length)
-
-          $cancelRx = [regex]::new('(?s)(?<head>WM_CANCELMODE\s*=>\s*\{)(?<body>.*?)(?<tail>\r?\n\s*WM_CAPTURECHANGED\s*=>)')
-          $cancelMatch = $cancelRx.Match($source)
-          if (-not $cancelMatch.Success) { throw 'WM_CANCELMODE handler not found.' }
-          $cancelBody = $cancelMatch.Groups['body'].Value
-          $cancelDragRx = [regex]::new('(?m)^(?<i>\s*)s\.dragging = false;\r?$')
-          if (-not $cancelDragRx.IsMatch($cancelBody)) { throw 'WM_CANCELMODE dragging reset not found.' }
-          $cancelBody = $cancelDragRx.Replace($cancelBody, '${i}s.dragging = false;' + $nl + '${i}s.drag_reparenting = false;', 1)
-          $source = $source.Substring(0, $cancelMatch.Groups['body'].Index) + $cancelBody +
-              $source.Substring($cancelMatch.Groups['body'].Index + $cancelMatch.Groups['body'].Length)
-
-          $captureRx = [regex]::new('(?s)WM_CAPTURECHANGED\s*=>\s*\{\s*let mut state = lock_state\(\);\s*if let Some\(s\) = state\.as_mut\(\) \{\s*s\.dragging = false;\s*\}\s*LRESULT\(0\)\s*\}')
-          if (-not $captureRx.IsMatch($source)) { throw 'WM_CAPTURECHANGED handler shape not found.' }
-          $captureReplacement = @'
-          WM_CAPTURECHANGED => {
-              let mut state = lock_state();
-              if let Some(s) = state.as_mut() {
-                  if !s.drag_reparenting {
-                      s.dragging = false;
-                  }
-              }
-              LRESULT(0)
-          }
-          '@
-          $source = $captureRx.Replace($source, $captureReplacement.Trim(), 1)
-
-          $upRx = [regex]::new('(?s)(?<head>WM_LBUTTONUP\s*=>\s*\{)(?<body>.*?)(?<tail>\r?\n\s*WM_RBUTTONUP\s*=>)')
-          $upMatch = $upRx.Match($source)
-          if (-not $upMatch.Success) { throw 'WM_LBUTTONUP handler not found.' }
-          $upBody = $upMatch.Groups['body'].Value
-
-          $ifDraggingRx = [regex]::new('(?m)^(?<i>\s*)if s\.dragging \{\r?$')
-          if (-not $ifDraggingRx.IsMatch($upBody)) { throw 'WM_LBUTTONUP dragging branch not found.' }
-          $upBody = $ifDraggingRx.Replace($upBody, '${i}s.drag_reparenting = false;' + $nl + '${i}if s.dragging {', 1)
-
-          $dragResultRx = [regex]::new('(?s)(?<block>let drag_result = \{.*?\r?\n\s*\};)(?<next>\r?\n\s*if drag_result\.is_none\(\))')
-          if (-not $dragResultRx.IsMatch($upBody)) { throw 'WM_LBUTTONUP drag_result block not found.' }
-          $upBody = $dragResultRx.Replace($upBody, '${block}' + $nl + '            let _ = ReleaseCapture();${next}', 1)
-
-          $conditionalReleaseRx = [regex]::new('(?m)^(?<i>\s*)if let Some\(\(current_taskbar_index, drag_start_client_x\)\) = drag_result \{\r?\n\s*let _ = ReleaseCapture\(\);\r?$')
-          if (-not $conditionalReleaseRx.IsMatch($upBody)) { throw 'Conditional WM_LBUTTONUP ReleaseCapture not found.' }
-          $upBody = $conditionalReleaseRx.Replace($upBody, '${i}if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {', 1)
-
-          $source = $source.Substring(0, $upMatch.Groups['body'].Index) + $upBody +
-              $source.Substring($upMatch.Groups['body'].Index + $upMatch.Groups['body'].Length)
-
-          Set-Content -LiteralPath $path -Value $source -Encoding utf8
 
       - name: Verify Codex CLI refresh is disabled
         shell: pwsh
@@ -187,19 +84,3 @@ jobs:
             dist/codex-usage.exe
             dist/codex-usage.exe.sha256
           if-no-files-found: error
-
-      - name: Commit verified capture fix and restore workflow
-        if: github.event_name == 'push' && github.ref_name == 'fix-v1.0.1-capture'
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/safe-build.yml
-          if (Test-Path .github/workflows/apply-v101-capture-fix-once.yml) {
-            git rm .github/workflows/apply-v101-capture-fix-once.yml
-          }
-          git add src/window.rs scripts/assert-drag-handler-safe.ps1 .github/workflows/safe-build.yml
-          git diff --cached --check
-          git commit -m "fix: prevent capture leak during live taskbar reparent"
-          git push origin HEAD:fix-v1.0.1-capture

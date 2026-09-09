@@ -81,6 +81,7 @@ struct AppState {
     drag_start_mouse_x: i32,
     drag_start_client_x: i32,
     drag_start_offset: i32,
+    drag_reparenting: bool,
 }
 
 const RETRY_BASE_MS: u32 = 30_000; // 30 seconds
@@ -1224,6 +1225,7 @@ pub fn run() {
                 drag_start_mouse_x: 0,
                 drag_start_client_x: 0,
                 drag_start_offset: 0,
+                drag_reparenting: false,
             });
         }
 
@@ -2166,8 +2168,12 @@ unsafe extern "system" fn wnd_proc(
                                 let mut state = lock_state();
                                 if let Some(s) = state.as_mut() {
                                     s.tray_offset = new_offset;
+                                    s.drag_reparenting = true;
                                 }
                             }
+
+                            let _ = ReleaseCapture();
+
 
                             if attach_to_taskbar(hwnd, target_index) {
                                 // SetParent can disturb capture/drag state. Restore
@@ -2180,10 +2186,17 @@ unsafe extern "system" fn wnd_proc(
                                         s.dragging = true;
                                         s.drag_start_mouse_x = pt.x;
                                         s.drag_start_offset = new_offset;
+                                        s.drag_reparenting = false;
                                     }
                                 }
                                 SetCapture(hwnd);
                                 switched_taskbar = true;
+                            } else {
+                                let mut state = lock_state();
+                                if let Some(s) = state.as_mut() {
+                                    s.drag_reparenting = false;
+                                }
+                                SetCapture(hwnd);
                             }
                         }
                     }
@@ -2285,24 +2298,28 @@ unsafe extern "system" fn wnd_proc(
                 let mut state = lock_state();
                 if let Some(s) = state.as_mut() {
                     s.dragging = false;
+                    s.drag_reparenting = false;
                 }
             }
             let _ = ReleaseCapture();
             LRESULT(0)
         }
         WM_CAPTURECHANGED => {
-            let mut state = lock_state();
-            if let Some(s) = state.as_mut() {
-                s.dragging = false;
-            }
-            LRESULT(0)
+    let mut state = lock_state();
+    if let Some(s) = state.as_mut() {
+        if !s.drag_reparenting {
+            s.dragging = false;
         }
+    }
+    LRESULT(0)
+}
         WM_LBUTTONUP => {
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             let drag_result = {
                 let mut state = lock_state();
                 if let Some(s) = state.as_mut() {
+                    s.drag_reparenting = false;
                     if s.dragging {
                         s.dragging = false;
                         Some((s.taskbar_index, s.drag_start_client_x))
@@ -2313,6 +2330,7 @@ unsafe extern "system" fn wnd_proc(
                     None
                 }
             };
+            let _ = ReleaseCapture();
             if drag_result.is_none() {
                 let client_x = (lparam.0 & 0xFFFF) as i16 as i32;
                 let client_y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
@@ -2336,7 +2354,6 @@ unsafe extern "system" fn wnd_proc(
                 }
             }
             if let Some((current_taskbar_index, drag_start_client_x)) = drag_result {
-                let _ = ReleaseCapture();
                 if let Some((target_index, target_taskbar)) = taskbar_at_point(pt) {
                     if target_index != current_taskbar_index {
                         let new_offset = offset_for_drop_point(
@@ -3479,5 +3496,6 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
+
 
 
