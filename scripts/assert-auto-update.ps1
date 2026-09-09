@@ -1,6 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Permanent regression contract for the in-app updater, including bounded HTTP diagnostics.
 $WindowPath = Join-Path $PSScriptRoot '..\src\window.rs'
 $MainPath = Join-Path $PSScriptRoot '..\src\main.rs'
 $UpdaterPath = Join-Path $PSScriptRoot '..\src\updater.rs'
