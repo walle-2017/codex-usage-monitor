@@ -1,35 +1,36 @@
 # Fork 说明
 
-本文档定义 `walle-2017/codex-usage-monitor` 相对上游仓库的**最终维护基线**。当前正式版本为 `v1.0.1`，继续以 Codex-only、最小运行时权限、稳定任务栏显示和可审计网络行为为核心目标。
+本文档定义 `walle-2017/codex-usage-monitor` 相对上游仓库的**最终维护基线**。当前正式版本为 `v1.0.2`，继续以 Codex-only、最小运行时权限、稳定任务栏显示和可审计网络行为为核心目标。
 
 本文档只描述当前仍然有效的差异和约束，不记录中间重构过程。
 
-## 1. v1.0.1 更新内容
+## 1. v1.0.2 更新内容
 
 正式版本：
 
 ```text
-版本：1.0.1
-Tag：v1.0.1
+版本：1.0.2
+Tag：v1.0.2
 运行时范围：Codex-only
 平台：Windows 10 / Windows 11
 ```
 
-`v1.0.1` 在 `v1.0.0` 安全基线之上优化了多显示器任务栏拖拽交互：
+`v1.0.2` 在 `v1.0.1` 实时跨任务栏拖动基础上进一步修正鼠标锚点与 DPI 变化时的交互：
 
-- 支持**实时跨任务栏拖动**；
-- 按住拖动手柄从任务栏 A 移入任务栏 B 时，无需松开鼠标，组件会立即重新挂载到 B 并继续跟随鼠标；
-- 不松开鼠标再从 B 拖回 A 时，同样会立即实时切回；
-- 跨任务栏切换时保留原始鼠标抓取点，避免组件突然以中心点吸附到鼠标位置；
-- `SetParent` 重新挂载后恢复鼠标捕获和拖动状态，避免跨屏过程中拖拽中断；
-- 鼠标位于所有任务栏之外时，组件仍限制在当前任务栏范围内，不变为桌面悬浮窗；
-- 最终的 `taskbar_index` 与 `tray_offset` 仍在拖动结束后统一持久化，不在每次 `WM_MOUSEMOVE` 时频繁写入设置文件。
+- 拖动开始时保存 DPI 无关的逻辑抓取点 `drag_anchor_logical_x`；
+- 组件跨入目标任务栏时，优先读取目标任务栏 DPI，并按目标 DPI 换算鼠标锚点；
+- 拖动期间以当前鼠标屏幕坐标直接计算组件左边界，不再依赖旧的增量 `drag_start_mouse_x + delta` 模型；
+- 跨任务栏时鼠标继续保持在左侧拖动手柄的同一逻辑抓取位置，避免组件与鼠标发生横向错位；
+- 拖动期间允许组件在任务栏边缘临时被父窗口裁剪，以鼠标锚点连续性为优先，不在切换瞬间强制停靠 clamp；
+- 鼠标松开后才将当前位置换算为合法 `tray_offset` 并执行最终 clamp，再统一持久化 `taskbar_index` 与 `tray_offset`；
+- 保留 `v1.0.1` 的 Mouse Capture 安全修复：跨任务栏重新挂载前释放 Capture、区分内部 `WM_CAPTURECHANGED`、重新挂载后恢复 Capture，并在按钮释放时无条件 `ReleaseCapture()`；
+- 支持 A → B、A → B → A 的连续拖动，也适配不同 DPI / 缩放比例的多显示器组合。
 
-`Cargo.toml` 是产品版本的权威来源；`Cargo.lock` 根包版本、程序右键菜单中的只读版本号，以及 Windows EXE 的 FileVersion/ProductVersion 均由该版本保持一致。
+`Cargo.toml` 是产品版本的权威来源；`Cargo.lock` 根包版本、程序右键菜单中的只读版本号，以及 Windows EXE 的 FileVersion/ProductVersion 均与该版本保持一致。
 
 ## 2. v1.0.0 安全基线
 
-`v1.0.0` 建立了当前 Fork 的 Codex-only 与安全运行时基线。`v1.0.1` 不改变这些安全约束，只增加任务栏交互改进。
+`v1.0.0` 建立了当前 Fork 的 Codex-only 与安全运行时基线。后续 `v1.0.1` / `v1.0.2` 不改变这些安全约束，只增加任务栏交互与稳定性改进。
 
 ## 3. Codex-only 运行时
 
@@ -163,7 +164,7 @@ ProxyServer
 - 支持 Windows 明/暗主题；
 - 支持 Windows 小任务栏布局；
 - 支持多显示器任务栏；
-- 左侧拖动手柄支持安全捕获、取消和实时跨任务栏拖动；
+- 左侧拖动手柄支持安全捕获、取消、实时跨任务栏拖动和 DPI-aware 鼠标锚点；
 - 保留 Explorer 重启 watchdog；
 - 保留 single-instance mutex；
 - 任务栏组件在进程运行期间始终显示，不存在隐藏/显示开关；
@@ -230,6 +231,7 @@ assert-clean-codex-only-source.ps1
 assert-v1-version.ps1
 assert-final-docs.ps1
 assert-drag-handler-safe.ps1
+assert-live-drag-anchor.ps1
 assert-compact-ui.ps1
 assert-small-taskbar-ui.ps1
 assert-language-independent-quota.ps1
@@ -249,7 +251,7 @@ cargo build --release
 3. 不得恢复程序内更新器。
 4. 不得恢复任务栏组件隐藏/显示状态机。
 5. 不得覆盖 Windows system proxy 支持。
-6. 不得破坏 Explorer watchdog、single-instance mutex、实时跨任务栏拖动、拖动安全和小任务栏适配。
+6. 不得破坏 Explorer watchdog、single-instance mutex、实时跨任务栏拖动、DPI-aware 拖动锚点、拖动安全和小任务栏适配。
 7. 安装脚本不得重新指向 upstream Release。
 8. 所有语言必须保持相同的剩余额度语义。
 9. 版本号必须继续由单一包版本源派生。
