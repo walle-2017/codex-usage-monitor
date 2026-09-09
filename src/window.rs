@@ -1260,6 +1260,17 @@ pub fn run() {
         // Initial render via UpdateLayeredWindow (for embedded) or InvalidateRect (fallback)
         render_layered();
 
+        if let Some(version) = updater::take_successful_update_version() {
+            let strings = language.strings();
+            let message = format!("{} v{}", strings.update_success, version);
+            tray_icon::notify_balloon(
+                hwnd,
+                tray_icon::TrayIconKind::Codex,
+                strings.update_title,
+                &message,
+            );
+        }
+
         // Poll timer: 15 minutes
         let initial_poll_ms = {
             let state = lock_state();
@@ -2356,6 +2367,33 @@ unsafe extern "system" fn wnd_proc(
             }
             LRESULT(0)
         }
+        updater::WM_APP_UPDATE_PROGRESS => {
+            while let Some(progress) = updater::take_progress() {
+                let strings = {
+                    let state = lock_state();
+                    state
+                        .as_ref()
+                        .map(|s| s.language.strings())
+                        .unwrap_or_else(|| LanguageId::English.strings())
+                };
+                let message = match progress {
+                    updater::UpdateProgress::Checking => strings.update_checking.to_string(),
+                    updater::UpdateProgress::Downloading { version } => {
+                        format!("{} v{}", strings.update_downloading, version)
+                    }
+                    updater::UpdateProgress::Restarting { version } => {
+                        format!("{} v{}…", strings.update_restarting, version)
+                    }
+                };
+                tray_icon::notify_balloon(
+                    hwnd,
+                    tray_icon::TrayIconKind::Codex,
+                    strings.update_title,
+                    &message,
+                );
+            }
+            LRESULT(0)
+        }
         updater::WM_APP_UPDATE_RESULT => {
             if let Some(result) = updater::take_ui_result() {
                 match result {
@@ -2411,7 +2449,20 @@ unsafe extern "system" fn wnd_proc(
                         );
                     }
                     updater::UpdateUiResult::ReadyToRestart => {
-                        let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                        // Give the Windows notification a brief moment to become visible
+                        // before the helper needs this process to exit for replacement.
+                        let close_hwnd = SendHwnd::from_hwnd(hwnd);
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_millis(1200));
+                            unsafe {
+                                let _ = PostMessageW(
+                                    close_hwnd.to_hwnd(),
+                                    WM_CLOSE,
+                                    WPARAM(0),
+                                    LPARAM(0),
+                                );
+                            }
+                        });
                     }
                 }
             }

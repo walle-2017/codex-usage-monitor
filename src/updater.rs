@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -25,11 +26,14 @@ const CHECKSUM_ASSET_NAME: &str = "codex-usage.exe.sha256";
 const UPDATE_TIMEOUT_SECS: u64 = 30;
 const HELPER_WAIT_SECS: u64 = 60;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const UPDATE_SUCCESS_MARKER_SUFFIX: &str = "update-success";
 
 pub(crate) const WM_APP_UPDATE_RESULT: u32 = WM_APP + 21;
+pub(crate) const WM_APP_UPDATE_PROGRESS: u32 = WM_APP + 22;
 
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static UPDATE_RESULT: Mutex<Option<UpdateUiResult>> = Mutex::new(None);
+static UPDATE_PROGRESS: Mutex<VecDeque<UpdateProgress>> = Mutex::new(VecDeque::new());
 static LAST_ERROR_DETAIL: Mutex<String> = Mutex::new(String::new());
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +52,13 @@ pub(crate) enum UpdateUiResult {
     Current { version: String },
     Failed { error: UpdateError, detail: String },
     ReadyToRestart,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum UpdateProgress {
+    Checking,
+    Downloading { version: String },
+    Restarting { version: String },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -214,6 +225,25 @@ fn lock_result() -> MutexGuard<'static, Option<UpdateUiResult>> {
     UPDATE_RESULT.lock().unwrap_or_else(|error| error.into_inner())
 }
 
+fn lock_progress() -> MutexGuard<'static, VecDeque<UpdateProgress>> {
+    UPDATE_PROGRESS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+fn post_progress(hwnd_raw: isize, progress: UpdateProgress) {
+    diagnose::log(format!("updater: progress={progress:?}"));
+    lock_progress().push_back(progress);
+    let target_hwnd = HWND(hwnd_raw as *mut _);
+    unsafe {
+        let _ = PostMessageW(target_hwnd, WM_APP_UPDATE_PROGRESS, WPARAM(0), LPARAM(0));
+    }
+}
+
+pub(crate) fn take_progress() -> Option<UpdateProgress> {
+    lock_progress().pop_front()
+}
+
 pub(crate) fn start_update(hwnd: HWND) -> bool {
     diagnose::log("updater: check started");
     clear_error_detail();
@@ -225,16 +255,23 @@ pub(crate) fn start_update(hwnd: HWND) -> bool {
     }
 
     let hwnd_raw = hwnd.0 as isize;
+    post_progress(hwnd_raw, UpdateProgress::Checking);
     std::thread::spawn(move || {
-        let ui_result = match prepare_update() {
+        let ui_result = match prepare_update(hwnd_raw) {
             Ok(UpdateOutcome::Current { version }) => UpdateUiResult::Current { version },
-            Ok(UpdateOutcome::Ready(package)) => match launch_prepared_update(package) {
-                Ok(()) => UpdateUiResult::ReadyToRestart,
-                Err(error) => {
-                    let detail = visible_error_detail(&error);
-                    diagnose::log(format!("updater: helper failed error={error:?} detail={detail}"));
-                    UpdateUiResult::Failed { error, detail }
-                },
+            Ok(UpdateOutcome::Ready(package)) => {
+                let version = package.version.clone();
+                match launch_prepared_update(package) {
+                    Ok(()) => {
+                        post_progress(hwnd_raw, UpdateProgress::Restarting { version });
+                        UpdateUiResult::ReadyToRestart
+                    },
+                    Err(error) => {
+                        let detail = visible_error_detail(&error);
+                        diagnose::log(format!("updater: helper failed error={error:?} detail={detail}"));
+                        UpdateUiResult::Failed { error, detail }
+                    },
+                }
             },
             Err(error) => {
                 let detail = visible_error_detail(&error);
@@ -334,7 +371,7 @@ fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
         .set("Accept", "*/*")
 }
 
-fn prepare_update() -> Result<UpdateOutcome, UpdateError> {
+fn prepare_update(hwnd_raw: isize) -> Result<UpdateOutcome, UpdateError> {
     let current_text = env!("CARGO_PKG_VERSION");
     diagnose::log(format!("updater: checking latest Release current={current_text}"));
     let current = Version::parse(current_text).ok_or(UpdateError::InvalidRelease)?;
@@ -372,6 +409,12 @@ fn prepare_update() -> Result<UpdateOutcome, UpdateError> {
         });
     }
 
+    post_progress(
+        hwnd_raw,
+        UpdateProgress::Downloading {
+            version: latest_text.clone(),
+        },
+    );
     let update = release_update_for_version(&latest_text);
     let agent = build_agent()?;
     let staging_dir = unique_staging_dir();
@@ -545,6 +588,34 @@ fn sibling_path(target: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(format!("{}.{}", target.to_string_lossy(), suffix))
 }
 
+fn success_marker_path(target: &Path) -> PathBuf {
+    sibling_path(target, UPDATE_SUCCESS_MARKER_SUFFIX)
+}
+
+fn consume_success_marker(marker: &Path, current_version: &str) -> Option<String> {
+    let value = fs::read_to_string(marker).ok()?;
+    let _ = fs::remove_file(marker);
+    let version = value.trim();
+    if Version::parse(version).is_none() || version != current_version {
+        diagnose::log(format!(
+            "updater: ignored stale or invalid success marker version={}",
+            safe_detail(version)
+        ));
+        return None;
+    }
+    Some(version.to_string())
+}
+
+pub(crate) fn take_successful_update_version() -> Option<String> {
+    let target = std::env::current_exe().ok()?;
+    let marker = success_marker_path(&target);
+    let version = consume_success_marker(&marker, env!("CARGO_PKG_VERSION"));
+    if let Some(version) = version.as_ref() {
+        diagnose::log(format!("updater: successful update marker consumed version={version}"));
+    }
+    version
+}
+
 fn ps_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
@@ -554,6 +625,7 @@ fn render_helper(package: &UpdatePackage, old_process_id: u32) -> String {
     let prepared_new = ps_single_quote(&package.prepared_new.to_string_lossy());
     let old = ps_single_quote(&sibling_path(&package.target, "old").to_string_lossy());
     let staging = ps_single_quote(&package.staging_dir.to_string_lossy());
+    let success_marker = ps_single_quote(&success_marker_path(&package.target).to_string_lossy());
     let version = ps_single_quote(&package.version);
     let working_dir = ps_single_quote(&package.working_dir.to_string_lossy());
     let args = if package.relaunch_args.is_empty() {
@@ -578,6 +650,7 @@ $Target = {target}
 $New = {prepared_new}
 $Old = {old}
 $Staging = {staging}
+$SuccessMarker = {success_marker}
 $Version = {version}
 $WorkingDirectory = {working_dir}
 $RelaunchArgs = {args}
@@ -592,6 +665,7 @@ while (Get-Process -Id $OldProcessId -ErrorAction SilentlyContinue) {{
 $MovedOld = $false
 $InstalledNew = $false
 try {{
+    Remove-Item -LiteralPath $SuccessMarker -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $Old -Force -ErrorAction SilentlyContinue
     if (-not (Test-Path -LiteralPath $Target -PathType Leaf)) {{
         throw 'Current executable disappeared before replacement.'
@@ -628,6 +702,8 @@ try {{
         # Registry metadata is best-effort and must not block a valid portable update.
     }}
 
+    Set-Content -LiteralPath $SuccessMarker -Value $Version -Encoding ascii
+
     try {{
         if ($RelaunchArgs.Count -gt 0) {{
             Start-Process -FilePath $Target -ArgumentList $RelaunchArgs -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
@@ -635,6 +711,7 @@ try {{
             Start-Process -FilePath $Target -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
         }}
     }} catch {{
+        Remove-Item -LiteralPath $SuccessMarker -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $Old -PathType Leaf) {{
             Move-Item -LiteralPath $Old -Destination $Target -Force
@@ -647,6 +724,7 @@ try {{
     Remove-Item -LiteralPath $Old -Force -ErrorAction SilentlyContinue
     $MovedOld = $false
 }} catch {{
+    Remove-Item -LiteralPath $SuccessMarker -Force -ErrorAction SilentlyContinue
     if ($InstalledNew -and (Test-Path -LiteralPath $Target -PathType Leaf)) {{
         Remove-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
     }}
@@ -713,6 +791,33 @@ fn cleanup_failed_package(package: &UpdatePackage) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn success_marker_is_consumed_only_for_current_version() {
+        let root = unique_staging_dir();
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("codex-usage.exe");
+        let marker = success_marker_path(&target);
+        fs::write(&marker, "1.2.3\n").unwrap();
+        assert_eq!(
+            consume_success_marker(&marker, "1.2.3"),
+            Some("1.2.3".to_string())
+        );
+        assert!(!marker.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stale_success_marker_is_removed_without_notification() {
+        let root = unique_staging_dir();
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("codex-usage.exe");
+        let marker = success_marker_path(&target);
+        fs::write(&marker, "9.9.9").unwrap();
+        assert_eq!(consume_success_marker(&marker, "1.2.3"), None);
+        assert!(!marker.exists());
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn numeric_version_order_handles_two_digit_patch() {

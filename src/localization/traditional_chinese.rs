@@ -26,6 +26,10 @@ pub(super) const STRINGS: Strings = Strings {
     codex_token_expired_body:
         "請在終端機中執行 'codex'，並依照登入提示操作。完成後，請重新整理或重新啟動此應用程式。",
     update_title: "Codex Usage 更新",
+    update_checking: "正在檢查更新…",
+    update_downloading: "發現新版本，正在下載並驗證",
+    update_restarting: "更新已準備完成，即將重新啟動到",
+    update_success: "已成功更新到",
     update_current: "目前已是最新版本",
     update_check_failed: "檢查更新失敗",
     update_download_failed: "下載更新失敗",
