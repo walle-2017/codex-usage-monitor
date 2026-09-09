@@ -168,9 +168,59 @@ fn visible_error_detail(error: &UpdateError) -> String {
     }
 }
 
-fn ureq_error_detail(error: &ureq::Error) -> String {
+fn diagnostic_body_summary(content_type: Option<&str>, body: &str) -> (Option<String>, Option<String>) {
+    let sanitized = safe_detail(body);
+    let is_json = content_type
+        .map(|value| value.to_ascii_lowercase().contains("json"))
+        .unwrap_or(false);
+    let body_message = if is_json {
+        serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .and_then(|value| value.get("message").and_then(|message| message.as_str()).map(safe_detail))
+    } else {
+        None
+    };
+    let body_preview = if body_message.is_none() && !sanitized.is_empty() {
+        Some(sanitized)
+    } else {
+        None
+    };
+    (body_message, body_preview)
+}
+
+fn github_status_detail(status: u16, response: ureq::Response) -> String {
+    let header_names = [
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "X-RateLimit-Resource",
+        "Retry-After",
+        "Server",
+        "Content-Type",
+    ];
+    let content_type = response.header("Content-Type").map(str::to_string);
+    let mut parts = vec![format!("HTTP {status}")];
+    for name in header_names {
+        if let Some(value) = response.header(name) {
+            parts.push(format!("{}={}", name.to_ascii_lowercase(), safe_detail(value)));
+        }
+    }
+
+    let mut body = String::new();
+    let mut reader = response.into_reader().take(4096);
+    let _ = reader.read_to_string(&mut body);
+    let (body_message, body_preview) = diagnostic_body_summary(content_type.as_deref(), &body);
+    if let Some(message) = body_message {
+        parts.push(format!("body_message={message}"));
+    } else if let Some(preview) = body_preview {
+        parts.push(format!("body_preview={preview}"));
+    }
+    parts.join(" ")
+}
+
+fn ureq_error_detail(error: ureq::Error) -> String {
     match error {
-        ureq::Error::Status(status, _) => format!("HTTP {status}"),
+        ureq::Error::Status(status, response) => github_status_detail(status, response),
         ureq::Error::Transport(transport) => format!("network/TLS: {}", safe_detail(transport)),
     }
 }
@@ -309,7 +359,7 @@ fn prepare_update() -> Result<UpdateOutcome, UpdateError> {
     let release_response = request_builder(&agent, LATEST_RELEASE_URL)
         .call()
         .map_err(|error| {
-            let detail = format!("GitHub Release request failed: {}", ureq_error_detail(&error));
+            let detail = format!("GitHub Release request failed: {}", ureq_error_detail(error));
             set_error_detail(detail.clone());
             diagnose::log(format!("updater: {detail}"));
             UpdateError::CheckFailed
@@ -400,7 +450,7 @@ fn download_to(agent: &ureq::Agent, url: &str, destination: &Path) -> Result<(),
         return Err(UpdateError::InvalidRelease);
     }
     let response = request_builder(agent, url).call().map_err(|error| {
-        let detail = format!("Release asset download failed: {}", ureq_error_detail(&error));
+        let detail = format!("Release asset download failed: {}", ureq_error_detail(error));
         set_error_detail(detail.clone());
         diagnose::log(format!("updater: {detail}"));
         UpdateError::DownloadFailed
@@ -710,6 +760,28 @@ mod tests {
                 patch: 3
             })
         );
+    }
+
+    #[test]
+    fn json_http_error_extracts_message_without_preview() {
+        let (message, preview) = diagnostic_body_summary(
+            Some("application/json; charset=utf-8"),
+            r#"{"message":"API rate limit exceeded"}"#,
+        );
+        assert_eq!(message.as_deref(), Some("API rate limit exceeded"));
+        assert!(preview.is_none());
+    }
+
+    #[test]
+    fn non_json_http_error_keeps_bounded_sanitized_preview() {
+        let (message, preview) = diagnostic_body_summary(
+            Some("text/html"),
+            "proxy denied https://user:secret@example.com/request",
+        );
+        assert!(message.is_none());
+        let preview = preview.expect("preview");
+        assert!(preview.contains("<redacted>@example.com"));
+        assert!(!preview.contains("secret"));
     }
 
     #[test]
