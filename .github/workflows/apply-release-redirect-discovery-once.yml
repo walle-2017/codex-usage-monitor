@@ -197,7 +197,7 @@ jobs:
               fn release_redirect_rejects_other_repo_and_prerelease_tags() {
                   assert_eq!(
                       parse_release_redirect(
-                          "https://github.com/upstream-ray/codex-usage-monitor/releases/tag/v9.9.9"
+                          "https://github.com/other-owner/codex-usage-monitor/releases/tag/v9.9.9"
                       )
                       .unwrap_err(),
                       UpdateError::InvalidRelease
