@@ -26,7 +26,7 @@ jobs:
         shell: pwsh
         run: |
           $manifest = Get-Content -Raw Cargo.toml
-          if ($manifest -notmatch '(?m)^version = "1\.0\.2"$') {
+          if ($manifest -notmatch '(?m)^version = "1\.0\.2"\r?$') {
             throw 'Expected production source version 1.0.2 before simulation patch.'
           }
           ./scripts/assert-auto-update.ps1
@@ -37,14 +37,14 @@ jobs:
         run: |
           $path = 'Cargo.toml'
           $text = Get-Content -Raw $path
-          $patched = $text -replace '(?m)^version = "1\.0\.2"$', 'version = "1.0.1"'
+          $patched = $text -replace '(?m)^version = "1\.0\.2"\r?$', 'version = "1.0.1"'
           if ($patched -eq $text) {
             throw 'Simulation version patch did not apply.'
           }
           Set-Content -LiteralPath $path -Value $patched -Encoding utf8NoBOM
 
           $manifest = Get-Content -Raw $path
-          if ($manifest -notmatch '(?m)^version = "1\.0\.1"$') {
+          if ($manifest -notmatch '(?m)^version = "1\.0\.1"\r?$') {
             throw 'Simulation manifest is not 1.0.1.'
           }
 
