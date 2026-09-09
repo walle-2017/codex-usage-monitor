@@ -40,7 +40,6 @@ pub fn init() -> Result<PathBuf, String> {
 fn open_log(path: &Path) -> Result<File, String> {
     OpenOptions::new()
         .create(true)
-        .write(true)
         .append(true)
         .open(path)
         .map_err(|e| format!("Unable to open runtime log file {}: {e}", path.display()))
