@@ -2279,7 +2279,8 @@ unsafe extern "system" fn wnd_proc(
                 }
             }
             LRESULT(0)
-        }        WM_CANCELMODE => {
+        }
+        WM_CANCELMODE => {
             {
                 let mut state = lock_state();
                 if let Some(s) = state.as_mut() {
@@ -3478,4 +3479,5 @@ mod tests {
         assert_eq!(notified.len(), 1);
     }
 }
+
 
