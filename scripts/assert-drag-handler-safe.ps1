@@ -28,6 +28,20 @@ if ($moveBody -notmatch 'SetCapture\s*\(\s*hwnd\s*\)') {
     throw 'WM_MOUSEMOVE must restore mouse capture after a live taskbar switch.'
 }
 
+# A captured child window must not be reparented directly between Explorer taskbars.
+# Release capture before SetParent/attach, mark the expected capture transition, then
+# restore capture only after the widget is attached to the new taskbar.
+$releaseBeforeAttach = [regex]::Match(
+    $moveBody,
+    '(?s)drag_reparenting\s*=\s*true.*?ReleaseCapture\s*\(\s*\).*?attach_to_taskbar\s*\(\s*hwnd\s*,\s*target_index\s*\)'
+)
+if (-not $releaseBeforeAttach.Success) {
+    throw 'Live taskbar switching must mark internal reparenting and release mouse capture before attach_to_taskbar().'
+}
+if ($moveBody -notmatch '(?s)attach_to_taskbar\s*\(\s*hwnd\s*,\s*target_index\s*\).*?drag_reparenting\s*=\s*false.*?SetCapture\s*\(\s*hwnd\s*\)') {
+    throw 'Live taskbar switching must clear the reparent marker and restore capture only after attach_to_taskbar().'
+}
+
 $hitTestMatch = [regex]::Match(
     $source,
     '(?s)fn\s+is_drag_handle_point\s*\([^)]*\)\s*->\s*bool\s*\{(?<body>.*?)\n\}'
@@ -58,12 +72,37 @@ if ($setCursorBody -match 'IDC_SIZEWE') {
     throw 'Drag handle must not use the horizontal resize cursor IDC_SIZEWE.'
 }
 
-if ($source -notmatch 'WM_CAPTURECHANGED') {
-    throw 'Drag handling must clear dragging state when mouse capture is lost (WM_CAPTURECHANGED).'
+$captureChangedMatch = [regex]::Match(
+    $source,
+    '(?s)WM_CAPTURECHANGED\s*=>\s*\{(?<body>.*?)\n\s*WM_LBUTTONUP\s*=>'
+)
+if (-not $captureChangedMatch.Success) {
+    throw 'Drag handling must process WM_CAPTURECHANGED.'
+}
+$captureChangedBody = $captureChangedMatch.Groups['body'].Value
+if ($captureChangedBody -notmatch 'drag_reparenting') {
+    throw 'WM_CAPTURECHANGED must distinguish an intentional live-reparent capture transition from a real capture loss.'
+}
+if ($captureChangedBody -notmatch '!s\.drag_reparenting') {
+    throw 'WM_CAPTURECHANGED must keep the drag session alive during an intentional live reparent.'
+}
+
+$buttonUpMatch = [regex]::Match(
+    $source,
+    '(?s)WM_LBUTTONUP\s*=>\s*\{(?<body>.*?)\n\s*WM_RBUTTONUP\s*=>'
+)
+if (-not $buttonUpMatch.Success) {
+    throw 'Unable to locate WM_LBUTTONUP handler.'
+}
+$buttonUpBody = $buttonUpMatch.Groups['body'].Value
+$releasePos = $buttonUpBody.IndexOf('ReleaseCapture')
+$dragResultBranchPos = $buttonUpBody.IndexOf('if let Some((current_taskbar_index')
+if ($releasePos -lt 0 -or ($dragResultBranchPos -ge 0 -and $releasePos -gt $dragResultBranchPos)) {
+    throw 'WM_LBUTTONUP must release mouse capture unconditionally before branching on dragging state.'
 }
 
 if ($source -notmatch 'WM_CANCELMODE') {
     throw 'Drag handling must clear dragging state when Windows cancels the interaction (WM_CANCELMODE).'
 }
 
-Write-Host 'PASS: taskbar dragging switches live across taskbars, preserves capture/grab position, avoids re-entrant locking, and clears cancelled drag state.'
+Write-Host 'PASS: taskbar dragging releases capture before live reparent, preserves intentional capture transitions, restores capture safely, and always releases on button-up.'
