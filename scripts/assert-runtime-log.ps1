@@ -29,7 +29,7 @@ if ($main -match 'if\s+diagnose_enabled\s*\{\s*match\s+diagnose::init') {
 }
 Assert-Match $main 'version=.*executable=' 'Startup log must include version and executable path.'
 Assert-Match $updater 'diagnose::log\("updater: check started"\)' 'Updater must log check start.'
-Assert-Match $updater 'diagnose::log\(format!\("updater: latest release' 'Updater must log resolved latest release state.'
+Assert-Match $updater 'diagnose::log\(format!\(\s*"updater: latest release' 'Updater must log resolved latest release state.'
 Assert-Match $window 'diagnose::log\("update command requested"\)' 'Version menu action must log update requests.'
 
 $combined = $diagnose + "`n" + $main + "`n" + $updater + "`n" + $window
