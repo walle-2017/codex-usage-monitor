@@ -20,9 +20,7 @@ Assert-Match $window 'available_update_version\s*:\s*Option<String>' 'AppState m
 Assert-Match $window 'v\{\} --> v\{\}' 'Version menu must show current --> available version when a newer Release is known.'
 Assert-Match $window 'successful_update_version_from_args[\s\S]*start_startup_update_check' 'Startup update check must be started after update-success notification handling.'
 Assert-Match $main '"--diagnose"' 'Runtime logging must be gated by the --diagnose command-line flag.'
-Assert-Match $main 'diagnose_enabled' 'main.rs must explicitly gate diagnose::init().' 
-if ($main -match '(?m)^\s*if\s+let\s+Ok\(path\)\s*=\s*diagnose::init\(\)') {
-    throw 'diagnose::init() must not run unconditionally during normal startup.'
-}
+Assert-Match $main 'diagnose_enabled' 'main.rs must explicitly gate diagnose::init().'
+Assert-Match $main 'if\s+diagnose_enabled\s*\{[\s\S]*diagnose::init\(\)' 'diagnose::init() must run inside the --diagnose gate.'
 
 Write-Host 'PASS: startup update discovery, menu hint, ordering, and --diagnose logging contract are present.'
