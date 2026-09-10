@@ -32,6 +32,7 @@ Assert-Contains $Window 'const IDM_OPEN_RELEASES' 'Context menu must define a Gi
 Assert-Contains $Window 'https://github.com/walle-2017/codex-usage-monitor/releases' 'Context menu must target the repository Releases page.'
 Assert-Contains $Window 'ShellExecuteW' 'GitHub Releases command must open in the default browser.'
 Assert-Contains $Window 'ManualUpdateRequired { version }' 'UI must handle the manual-update result explicitly.'
+Assert-Contains $Window 'updater::UpdateError::AssetMissing' 'UI error matching must remain exhaustive for the internal missing-asset error.'
 Assert-Contains $Window '程序名称或发布文件名称已发生变化' 'Simplified Chinese notification must explain the program/release asset rename.'
 Assert-Contains $Window 'GitHub Releases' 'Context menu must expose GitHub Releases.'
 
