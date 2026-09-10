@@ -1,69 +1,67 @@
-# Fork 说明
+<p align="center">
+  <img src=".github/codex-usage-icon.png" alt="Codex Usage Win" width="144" height="144">
+</p>
 
-本文档定义 `walle-2017/codex-usage-monitor` 相对上游仓库的当前维护基线。当前开发版本为 `v1.0.4`，在用户测试通过后再创建 Tag 和正式 Release。运行时继续以 Codex-only、最小权限、稳定任务栏显示和可审计网络行为为核心目标。
+<h1 align="center">Codex Usage Win — Fork 维护说明</h1>
 
-本文档只描述当前仍然有效的差异和约束，不记录中间重构过程。
+<p align="center">
+  <strong>Windows 原生 Codex 用量监控 · Codex-only · 无后台服务 · 安全手动更新</strong>
+</p>
 
-## 1. v1.0.4 更新内容
+本文档定义 `walle-2017/codex-usage-monitor` 相对上游仓库的当前维护基线。当前维护版本为 **v1.0.4**，产品名称统一为 **Codex Usage Win**，程序文件统一为 `codex-usage-win.exe`。
 
-候选版本：
+> 本文只记录当前仍然有效的 Fork 差异、安全边界和发布约束，不保留中间重构过程。
 
-```text
-版本：1.0.4
-Tag：待测试通过后创建
-产品名称：Codex Usage Win
-程序文件：codex-usage-win.exe
-运行时范围：Codex-only
-平台：Windows 10 / Windows 11
-```
+## 1. 当前版本
 
-`v1.0.4` 在 `v1.0.3` 基线上完成产品身份和图标统一：
+| 项目 | 当前值 |
+| --- | --- |
+| 版本 | `v1.0.4` |
+| 产品名称 | `Codex Usage Win` |
+| 程序文件 | `codex-usage-win.exe` |
+| SHA256 文件 | `codex-usage-win.exe.sha256` |
+| 平台 | Windows 10 / Windows 11 |
+| 运行时范围 | Codex-only |
+| Release | [v1.0.4](https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.4) |
 
-- 产品显示名称统一为 `Codex Usage Win`，Windows ProductName、FileDescription、窗口标题、托盘相关显示和更新通知均使用该名称。
-- 程序文件名统一为 `codex-usage-win.exe`，Release 校验文件名统一为 `codex-usage-win.exe.sha256`。
-- Windows 安装目录调整为 `%LOCALAPPDATA%\Programs\CodexUsageWin`，快捷方式名称统一为 `Codex Usage Win`。
-- 用户设置目录继续保留 `%APPDATA%\CodexUsage`，避免升级或重新安装后丢失已有设置。
-- EXE 内嵌图标、任务栏托盘图标和快捷方式图标统一使用新的应用图标资源。
-- 更新成功使用一次性内部参数 `--codex-usage-win-updated-to=X.Y.Z` 交给新进程显示通知；迁移阶段仍兼容旧参数 `--codex-usage-updated-to=`。
-- 软件每次启动后仍只执行一次只读稳定 Release 检查；仅发现更高版本时通知用户，不自动下载或安装。
-- 设置中的版本号保持可点击；发现更高版本后显示 `v当前版本 --> v最新版本`，点击后进入手动更新流程。
+### v1.0.4 主要变化
+
+- Windows `ProductName`、`FileDescription`、窗口标题、托盘相关显示和消息通知统一为 `Codex Usage Win`。
+- 可执行文件和 Release 资产统一使用 `codex-usage-win.exe` / `codex-usage-win.exe.sha256`。
+- 安装目录调整为 `%LOCALAPPDATA%\Programs\CodexUsageWin`，快捷方式和卸载项统一为 `Codex Usage Win`。
+- 用户设置继续保存在 `%APPDATA%\CodexUsage`，避免品牌改名导致已有设置丢失。
+- EXE 内嵌图标、任务栏托盘图标和快捷方式图标统一使用新的应用图标。
+- 更新成功通过一次性内部参数 `--codex-usage-win-updated-to=X.Y.Z` 交给新进程显示通知；迁移阶段仍兼容旧的 `--codex-usage-updated-to=` 参数。
+- 每次启动只进行一次稳定 Release 只读检查；没有新版本或检查失败时不打扰用户。
+- 发现更高版本时，版本菜单显示 `v当前版本 --> v最新版本`；只有用户点击后才进入下载、校验和替换流程。
 - 普通更新状态和额度提醒继续使用简洁 Windows 通知；真正的更新失败保留警告样式和具体错误信息。
-- 同一轮轮询触发多个额度窗口提醒时继续合并为一条通知。
-- 仅使用 `--diagnose` 启动时才在 EXE 同目录创建或追加 `codex-usage-win.log`；达到 5 MB 后轮转为 `codex-usage-win.log.1`。普通启动不写诊断日志。
+- 同一轮轮询触发多个额度窗口提醒时合并为一条通知。
+- 仅使用 `--diagnose` 启动时才在 EXE 同目录写入 `codex-usage-win.log`，超过 5 MB 后轮转为 `codex-usage-win.log.1`；普通启动不写诊断日志。
 
-`Cargo.toml` 是产品版本的权威来源；`Cargo.lock` 根包版本、程序右键菜单版本号，以及 Windows EXE 的 FileVersion/ProductVersion 均与 `1.0.4` 保持一致。
+`Cargo.toml` 是版本号的权威来源；`Cargo.lock` 根包版本、程序菜单版本以及 Windows `FileVersion` / `ProductVersion` 均由同一版本基线保持一致。
 
-## 2. v1.0.3 更新基线
+## 2. 功能与 UI 基线
 
-`v1.0.3` 完成应用内安全更新、启动更新发现、诊断日志和通知精简：
+程序在任务栏中直接显示 Codex 5 小时和 7 天剩余额度，保留 Compact / 紧凑与 Minimal / 极简两套外观，并支持：
 
-- 每次启动只执行一次只读稳定 Release 检查，仅发现更高版本时通知。
-- 最新版本只从当前 Fork `walle-2017/codex-usage-monitor` 的稳定 Release 获取。
-- 最新版本发现通过 `https://github.com/walle-2017/codex-usage-monitor/releases/latest` 重定向解析稳定 `vX.Y.Z`，不依赖 GitHub 未认证 REST `releases/latest` API。
-- 更新只下载当前 Fork Release 中的程序文件及 SHA256 校验文件，通过校验后才进入替换流程。
-- 更新目标固定为 `std::env::current_exe()`，支持安装版和位于可写目录中的便携版。
-- 使用本地一次性 PowerShell helper 等待旧进程退出，执行 `.new` / `.old` 替换和失败回滚，然后重启新版本；不会下载或执行 Release 中的 `install.ps1`。
-- 普通启动不写诊断日志，`--diagnose` 才启用持久日志。
+- Windows 明/暗主题与小任务栏布局；
+- 多显示器任务栏；
+- DPI-aware 实时跨任务栏拖动；
+- Explorer restart watchdog；
+- single-instance mutex；
+- 托盘刷新、设置和退出；
+- 低额度提醒与合并通知；
+- 启动一次只读更新发现 + 手动应用内更新。
 
-## 3. v1.0.2 多显示器拖动基线
+### v1.0.2 拖动基线不得回退
 
-`v1.0.2` 修正多显示器与不同缩放比例下的拖动锚点：
+多显示器与不同缩放比例下的拖动依赖逻辑抓取点 `drag_anchor_logical_x`。拖动跨入目标任务栏时必须重新读取目标任务栏 DPI，并按目标 DPI 换算抓取锚点；需要继续支持 A → B、A → B → A 的连续跨屏拖动。
 
-- 拖动开始时保存 DPI 无关的逻辑抓取点 `drag_anchor_logical_x`；
-- 跨入目标任务栏时读取目标任务栏 DPI，并按目标 DPI 换算鼠标锚点；
-- 拖动期间以当前鼠标屏幕坐标直接计算组件左边界；
-- 支持不同 DPI / 缩放比例显示器之间 A → B、A → B → A 连续拖动；
-- 保留 Mouse Capture 安全修复：重新挂载前释放 Capture、区分内部 `WM_CAPTURECHANGED`、挂载后恢复 Capture，并在按钮释放时无条件 `ReleaseCapture()`。
+Mouse Capture 安全约束同样保留：重新挂载前释放 Capture、区分内部 `WM_CAPTURECHANGED`、挂载后恢复 Capture，并在按钮释放时无条件 `ReleaseCapture()`。
 
-## 4. v1.0.1 与 v1.0.0 安全基线
+## 3. Codex-only 运行时
 
-`v1.0.1` 增加实时跨任务栏拖动；`v1.0.0` 建立 Codex-only 与安全运行时基线。后续版本不得破坏这些约束。
-
-## 5. Codex-only 运行时
-
-程序运行时只查询 Codex 用量，不提供多 Provider 选择、轮询、绘制或托盘切换逻辑。
-
-主要数据流：
+程序运行时只查询 Codex 用量，不恢复多 Provider 选择、轮询、绘制或托盘切换逻辑。
 
 ```text
 $CODEX_HOME/auth.json 或 ~/.codex/auth.json
@@ -79,11 +77,11 @@ ChatGPT Codex usage endpoint
 任务栏显示 5h / 7d 剩余额度
 ```
 
-任务栏百分比、进度长度和状态色统一使用剩余额度语义，不因界面语言改变含义。
+任务栏百分比、进度长度和状态色统一使用“剩余额度”语义，不因界面语言变化而改变含义。
 
-## 6. Codex CLI 自动刷新必须保持禁用
+## 4. Codex CLI 自动刷新必须保持禁用
 
-当 usage API 返回 `401` / `403` 时，固定行为为：
+当 usage API 返回 `401` / `403` 时，固定行为是：
 
 ```text
 usage API 返回 401 / 403
@@ -95,41 +93,46 @@ usage API 返回 401 / 403
 不会启动 Codex CLI
 ```
 
-监控器不得为了额度查询主动执行或寻找 `codex.exe`、`codex.cmd`、`codex.ps1` 或 `codex exec`。登录失效时，由用户自行通过官方 Codex CLI / Codex 应用完成登录，监控器不直接修改 `auth.json`。
+监控器不得为了额度查询主动执行或寻找 `codex.exe`、`codex.cmd`、`codex.ps1` 或 `codex exec`。登录失效后由用户通过官方 Codex CLI / Codex 应用重新登录，监控器不直接修改 `auth.json`。
 
 CI 中的 `scripts/assert-no-codex-cli-refresh.ps1` 持续锁定这一安全边界。
 
-## 7. 凭据、隐私与 system proxy
+## 5. 凭据、隐私与代理
 
-本 Fork 不把 Codex 凭据上传到项目作者自己的服务器，不使用独立后端，不收集 Analytics / Telemetry，也不上传项目文件。
+本 Fork：
 
-若用户显式设置 `HTTPS_PROXY`、`HTTP_PROXY` 或 `ALL_PROXY`，则沿用环境变量代理。否则程序可读取 Windows 当前用户的手动 system proxy：
+- 不把 Codex 凭据上传到项目作者自己的服务器；
+- 不使用独立后端；
+- 不收集 Analytics / Telemetry；
+- 不上传用户项目文件。
+
+代理优先级为：
+
+```text
+HTTPS_PROXY / HTTP_PROXY / ALL_PROXY
+        ↓
+Windows 当前用户手动 system proxy
+        ↓
+直连
+```
+
+Windows 手动代理读取位置：
 
 ```text
 HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings
 ```
 
-读取 `ProxyEnable` / `ProxyServer` 并只作用于当前进程，不修改注册表或系统代理设置。当前不实现 PAC/WPAD。
+仅读取 `ProxyEnable` / `ProxyServer` 并作用于当前进程，不修改注册表和系统代理设置；当前不实现 PAC/WPAD。
 
-## 8. 任务栏 UI 最终状态
+## 6. 应用内更新安全边界
 
-任务栏保留 Compact / 紧凑与 Minimal / 极简两套外观，并继续满足：
-
-- Windows 明/暗主题和小任务栏布局；
-- 多显示器任务栏和 DPI-aware 实时跨任务栏拖动；
-- Explorer restart watchdog 与 single-instance mutex；
-- 任务栏组件在进程运行期间始终显示；
-- 托盘图标提供刷新、设置和退出。
-
-设置文件继续位于：
+更新源固定为当前 Fork：
 
 ```text
-%APPDATA%\CodexUsage\settings.json
+walle-2017/codex-usage-monitor
 ```
 
-## 9. 应用内更新安全边界
-
-更新流程必须满足：
+完整流程：
 
 ```text
 用户点击版本号
@@ -149,17 +152,19 @@ SHA256 校验
 携带一次性成功参数重启
 ```
 
-不得把更新源重新指向 upstream Release，不得为更新要求 GitHub PAT，不得自动下载并信任 Release `install.ps1`。允许且只允许每次软件启动后执行一次只读更新检查；不得扩展为周期性后台检查。
+必须继续满足：
 
-在线安装源同样固定为：
+- 不把更新源重新指向 upstream Release；
+- 不要求 GitHub PAT；
+- 不自动下载或执行 Release 中的 `install.ps1`；
+- 每次启动最多执行一次只读稳定 Release 检查；
+- 启动检查不得扩展为周期性后台更新检查；
+- 真正安装更新必须由用户主动点击触发；
+- 更新目标仍以当前运行程序为安全替换对象，并保留 SHA256 校验、`.new` / `.old` 回滚和重启流程。
 
-```text
-walle-2017/codex-usage-monitor
-```
+## 7. 安装与卸载模型
 
-## 10. 安装模型
-
-`v1.0.4` Release 目标资产：
+v1.0.4 正式 Release 资产：
 
 ```text
 codex-usage-win.exe
@@ -168,28 +173,55 @@ install.ps1
 uninstall.ps1
 ```
 
-PowerShell 安装程序按用户安装到 `%LOCALAPPDATA%\Programs\CodexUsageWin`，安装前校验 SHA256，不要求管理员权限。普通卸载保留 `%APPDATA%\CodexUsage\settings.json`，显式使用 `-RemoveSettings` 才删除设置。
+PowerShell 安装程序按当前用户安装到：
 
-## 11. CI 安全回归
+```text
+%LOCALAPPDATA%\Programs\CodexUsageWin
+```
 
-`.github/workflows/safe-build.yml` 使用只读仓库权限，并执行产品命名、版本、安全、任务栏交互、更新、日志以及 Rust 测试/Clippy/Release Build 回归。成功后生成 Windows x64 Artifact，并附带 EXE SHA256。
+不要求管理员权限。普通卸载保留：
 
-## 12. 同步 upstream 时必须保护的边界
+```text
+%APPDATA%\CodexUsage\settings.json
+```
 
-以后同步上游代码时，至少确认：
+只有显式使用 `-RemoveSettings` 才删除设置。
 
-1. 不得恢复任何自动启动 Codex CLI 的 Token 刷新路径。
-2. 运行时必须保持 Codex-only。
-3. 应用内更新源必须固定到 `walle-2017/codex-usage-monitor` 的稳定 Release，并保留一次启动时只读检查。
-4. 不得恢复任务栏组件隐藏/显示状态机。
-5. 不得覆盖 Windows system proxy 支持。
-6. 不得破坏 Explorer watchdog、single-instance mutex、实时跨任务栏拖动、DPI-aware 拖动锚点和小任务栏适配。
-7. 安装脚本不得重新指向 upstream Release。
-8. 所有语言必须保持相同的剩余额度语义。
-9. 版本号必须继续由单一包版本源派生。
-10. 合并前必须通过 Safe Windows Build 全部检查。
+## 8. CI 与发布约束
 
-## 13. 上游与许可证
+`.github/workflows/safe-build.yml` 使用只读仓库权限，并验证：
+
+- Codex CLI 自动刷新保持禁用；
+- Codex-only 运行时；
+- `Codex Usage Win` / `codex-usage-win` 品牌一致性；
+- v1.0.4 版本一致性；
+- 任务栏拖动和小任务栏 UI；
+- 应用内更新安全边界；
+- 启动更新发现；
+- `--diagnose` 日志行为；
+- `cargo test`；
+- Clippy；
+- Release Build。
+
+正式发布由 `.github/workflows/release.yml` 在 `v*` Tag 推送后构建 Windows x64 程序并上传四个 Release 资产。
+
+## 9. 同步 upstream 时必须保护的边界
+
+以后同步上游代码时至少确认：
+
+1. 不恢复任何自动启动 Codex CLI 的 Token 刷新路径。
+2. 运行时保持 Codex-only。
+3. 应用内更新源固定到 `walle-2017/codex-usage-monitor` 的稳定 Release。
+4. 启动时只允许一次只读更新检查。
+5. 不恢复任务栏组件隐藏/显示状态机。
+6. 不覆盖 Windows system proxy 支持。
+7. 不破坏 Explorer watchdog、single-instance mutex、实时跨任务栏拖动、DPI-aware 拖动锚点和小任务栏适配。
+8. 安装脚本不得重新指向 upstream Release。
+9. 所有语言保持一致的剩余额度语义。
+10. 版本号继续由单一包版本源派生。
+11. 合并和正式发布前必须通过 Safe Windows Build 全部检查。
+
+## 10. 上游与许可证
 
 本项目继续遵守 MIT License，并保留原始 [LICENSE](LICENSE) 与版权信息。
 
