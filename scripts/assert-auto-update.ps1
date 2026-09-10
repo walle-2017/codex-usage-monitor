@@ -89,4 +89,5 @@ foreach ($pattern in @('codex login','codex auth','refresh_token','auth\.json.*w
     if ($updater -match $pattern) { throw "Forbidden credential/CLI behavior: $pattern" }
 }
 
+# Final verification trigger after concise quota notification assertion alignment.
 Write-Host 'PASS: updater uses concise non-blocking notifications, process-local success handoff, aggregated quota alerts, and secure fork-only updates.'
