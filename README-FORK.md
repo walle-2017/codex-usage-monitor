@@ -43,11 +43,27 @@ Tag：v1.0.3
 - 保留 Mouse Capture 安全修复：重新挂载前释放 Capture、区分内部 `WM_CAPTURECHANGED`、挂载后恢复 Capture，并在按钮释放时无条件 `ReleaseCapture()`；
 - 支持 A → B、A → B → A 连续拖动，以及不同 DPI / 缩放比例的多显示器组合。
 
-## 3. v1.0.0 安全基线
+## 3. v1.0.1 实时跨任务栏拖动
+
+`v1.0.1` 在 `v1.0.0` 安全基线之上增加多显示器任务栏的实时跨任务栏拖动，并完成 Mouse Capture 稳定性修复：
+
+- 支持**实时跨任务栏拖动**；
+- 按住左侧拖动手柄从任务栏 A 移入任务栏 B 时，无需松开鼠标，组件会立即重新挂载到 B 并继续跟随鼠标；
+- 不松开鼠标再从 B 拖回 A 时，同样会立即切回，支持 A → B → A 连续拖动；
+- 跨任务栏切换时保留鼠标抓取点，避免组件突然以中心位置吸附到鼠标；
+- 组件始终保持为任务栏子窗口，鼠标离开任务栏区域时不会变成桌面悬浮窗；
+- 最终 `taskbar_index` 与 `tray_offset` 只在拖动结束后统一持久化，不在每次 `WM_MOUSEMOVE` 时频繁写入设置文件；
+- 修复实时 `SetParent` 重新挂载过程中 Mouse Capture 状态变化可能导致拖动中断或界面卡住的问题；
+- 跨任务栏重新挂载前先 `ReleaseCapture()`，通过内部重挂载状态区分预期的 `WM_CAPTURECHANGED`，挂载成功后重新 `SetCapture()`；
+- `WM_LBUTTONUP` 无条件释放 Capture，`WM_CANCELMODE` 同步清理拖动状态，避免遗留鼠标捕获。
+
+`v1.0.1` 不改变 Codex-only、禁止自动启动 Codex CLI 刷新 Token、代理读取方式等 `v1.0.0` 安全边界。
+
+## 4. v1.0.0 安全基线
 
 `v1.0.0` 建立了当前 Fork 的 Codex-only 与安全运行时基线。后续版本不得破坏这些安全约束。
 
-## 4. Codex-only 运行时
+## 5. Codex-only 运行时
 
 程序运行时只查询 Codex 用量，不提供多 Provider 选择、轮询、绘制或托盘切换逻辑。
 
@@ -69,7 +85,7 @@ ChatGPT Codex usage endpoint
 
 任务栏百分比、进度长度和状态色统一使用**剩余额度**语义，不因界面语言改变含义。
 
-## 5. Codex CLI 自动刷新必须保持禁用
+## 6. Codex CLI 自动刷新必须保持禁用
 
 这是本 Fork 最重要的安全约束。
 
@@ -100,7 +116,7 @@ codex exec
 
 CI 中的 `scripts/assert-no-codex-cli-refresh.ps1` 持续锁定这一安全边界。
 
-## 6. 凭据、隐私与 system proxy
+## 7. 凭据、隐私与 system proxy
 
 本 Fork：
 
@@ -117,7 +133,7 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings
 
 读取 `ProxyEnable` / `ProxyServer` 并只作用于当前进程，不修改注册表或系统代理设置。当前不实现 PAC/WPAD。
 
-## 7. 任务栏 UI 最终状态
+## 8. 任务栏 UI 最终状态
 
 任务栏只保留两套外观：
 
@@ -141,7 +157,7 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings
 %APPDATA%\CodexUsage\settings.json
 ```
 
-## 8. 应用内更新安全边界
+## 9. 应用内更新安全边界
 
 更新检查必须满足：
 
@@ -171,7 +187,7 @@ SHA256 校验
 walle-2017/codex-usage-monitor
 ```
 
-## 9. 安装模型
+## 10. 安装模型
 
 正式 Release 至少提供：
 
@@ -184,7 +200,7 @@ uninstall.ps1
 
 PowerShell 安装程序按用户安装到 `%LOCALAPPDATA%\Programs\CodexUsage`，安装前校验 SHA256，不要求管理员权限。普通卸载保留 `%APPDATA%\CodexUsage\settings.json`，显式使用 `-RemoveSettings` 才删除设置。
 
-## 10. CI 安全回归
+## 11. CI 安全回归
 
 `.github/workflows/safe-build.yml` 使用只读仓库权限：
 
@@ -215,7 +231,7 @@ cargo build --release
 
 成功后生成 Windows x64 Artifact，并附带 EXE SHA256。
 
-## 11. 同步 upstream 时必须保护的边界
+## 12. 同步 upstream 时必须保护的边界
 
 以后同步上游代码时，至少逐项确认：
 
@@ -230,7 +246,7 @@ cargo build --release
 9. 版本号必须继续由单一包版本源派生。
 10. 合并前必须通过 Safe Windows Build 全部检查。
 
-## 12. 上游与许可证
+## 13. 上游与许可证
 
 本项目继续遵守 MIT License，并保留原始 [LICENSE](LICENSE) 与版权信息。
 
