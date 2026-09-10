@@ -25,7 +25,7 @@ A lightweight native Windows taskbar widget for monitoring **Codex usage**. The 
 - Explorer restart watchdog and single-instance protection
 - Windows manual system-proxy support when explicit proxy environment variables are absent
 - One tray icon for refresh/settings/exit while the taskbar widget remains visible
-- Manual in-app update from this fork's latest stable Release, with SHA256 verification, rollback, restart, and concise Windows notifications
+- One startup Release check that only notifies about a newer stable version, plus manual in-app update with SHA256 verification, rollback, restart, and concise Windows notifications
 
 ## Safety behavior
 
@@ -106,7 +106,7 @@ Because the Codex request includes an OAuth Bearer token inside TLS, only use pr
 
 ## Diagnostics
 
-Runtime logging is enabled automatically. `codex-usage.log` is written beside the running executable and is retained across restarts. At 5 MB it rotates to `codex-usage.log.1`, keeping only the current and previous log.
+Runtime logging is opt-in. Start Codex Usage with `--diagnose` to create `codex-usage.log` beside the running executable. The log is retained across diagnostic restarts and rotates at 5 MB to `codex-usage.log.1`, keeping only the current and previous log. Normal startup does not create or append the diagnostic log.
 
 The log records key application, polling, proxy, taskbar-recovery, and in-app-update events. It does not record access tokens, refresh tokens, credential-file contents, or proxy passwords. See [Troubleshooting](docs/troubleshooting.md).
 
@@ -128,9 +128,9 @@ The monitor does not directly edit `auth.json` and does not start Codex CLI proc
 
 The current release is **1.0.3**. The in-app menu displays `v1.0.3` from the package version, and Windows executable metadata is generated from the same source. The initial cleaned Codex-only safety baseline was `v1.0.0`.
 
-The version row in **Settings** is clickable. Clicking it checks only the latest stable Release of `walle-2017/codex-usage-monitor`. Latest-version discovery uses the fork's GitHub Release redirect rather than the unauthenticated GitHub REST API, avoiding the shared-IP REST rate limit encountered with public proxy exits.
+Codex Usage performs one check-only Release lookup after startup. If a higher stable version exists, it shows a concise notification and the **Settings** version row becomes `vCURRENT --> vLATEST`. The startup check never downloads or installs an update. Clicking the version row performs the existing manual update flow. All discovery is limited to the latest stable Release of `walle-2017/codex-usage-monitor` and uses the fork's GitHub Release redirect rather than the unauthenticated GitHub REST API.
 
-If a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. The updater keeps a rollback copy until replacement succeeds and never downloads or executes a Release `install.ps1`. There is no startup or periodic background update check.
+When the user clicks the version row and a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. The updater keeps a rollback copy until replacement succeeds and never downloads or executes a Release `install.ps1`. There is no periodic background update check; the automatic check runs once per application startup and is notification-only.
 
 ## Open source
 

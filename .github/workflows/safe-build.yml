@@ -63,6 +63,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-auto-update.ps1
 
+      - name: Verify startup update discovery contract
+        shell: pwsh
+        run: ./scripts/assert-startup-update-check.ps1
+
       - name: Verify persistent runtime logging contract
         shell: pwsh
         run: ./scripts/assert-runtime-log.ps1

@@ -29,7 +29,7 @@ The installer expects `codex-usage.exe`, `codex-usage.exe.sha256`, and `uninstal
 %APPDATA%\CodexUsage\settings.json
 ```
 
-Both installed and portable writable copies support the manually initiated in-app updater. Open **Settings** and click the displayed version. Codex Usage checks only the latest stable Release from `walle-2017/codex-usage-monitor`, downloads `codex-usage.exe` plus `codex-usage.exe.sha256`, verifies SHA256, stages the replacement beside the running executable, and restarts automatically.
+Both installed and portable copies perform one check-only lookup of the latest stable Release from `walle-2017/codex-usage-monitor` after startup. If a higher version exists, Codex Usage notifies the user and the **Settings** version row displays `vCURRENT --> vLATEST`. No file is downloaded by the startup check. Clicking the version row starts the manual updater, which downloads `codex-usage.exe` plus `codex-usage.exe.sha256`, verifies SHA256, stages the replacement beside the running executable, and restarts automatically.
 
 The updater does not request UAC elevation. If the executable directory is not writable, the running version is left unchanged. It never downloads or executes the Release `install.ps1` as part of an in-app update.
 
@@ -53,6 +53,6 @@ The executable's Windows FileVersion/ProductVersion and the application's versio
 
 ## In-app update behavior
 
-The version item is user-triggered only; there is no startup or periodic background update check. Latest-version discovery uses the fork's GitHub `releases/latest` redirect and strictly accepts only this repository's stable numeric `vX.Y.Z` tag path.
+Latest-version discovery runs once after application startup and again when the user clicks the version row. The startup pass is check-only and silent when current or failed; it only notifies when a higher stable version is found. There is no periodic background update check. Discovery uses the fork's GitHub `releases/latest` redirect and strictly accepts only this repository's stable numeric `vX.Y.Z` tag path.
 
 Replacement uses a generated local one-shot PowerShell helper. The helper waits for the old process to exit, preserves the old executable as `.old`, installs the verified `.new` file, rolls back on replacement/relaunch failure, and restarts the new executable with a one-shot internal success argument. That argument is consumed by the new process and does not create a persistent marker file in the program directory.

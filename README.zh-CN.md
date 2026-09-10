@@ -25,7 +25,7 @@
 - 保留 Explorer 重启恢复与单实例保护
 - 未显式配置代理环境变量时，可读取 Windows 当前用户的手动系统代理
 - 保留一个托盘图标用于刷新、设置和退出；任务栏组件在程序运行期间始终显示
-- 支持从当前 Fork 最新稳定 Release 手动触发应用内更新，包含 SHA256 校验、回滚、自动重启和精简 Windows 通知
+- 软件启动后执行一次仅检查的稳定 Release 更新检测；发现更高版本时通知用户，并支持手动触发 SHA256 校验、回滚和自动重启更新
 
 ## 安全行为
 
@@ -106,7 +106,7 @@ Codex 用量请求会在 TLS 连接中携带 OAuth Bearer Token，因此应只�
 
 ## 诊断日志
 
-运行日志默认启用，无需 `--diagnose`。`codex-usage.log` 写在当前 `codex-usage.exe` 同目录，并跨正常重启追加保留；达到 5 MB 时轮转为 `codex-usage.log.1`，只保留当前和上一份日志。
+运行日志改为按需启用。只有使用 `--diagnose` 启动 Codex Usage 时，才会在当前 `codex-usage.exe` 同目录创建或追加 `codex-usage.log`；达到 5 MB 时轮转为 `codex-usage.log.1`，只保留当前和上一份日志。普通启动不会创建或写入诊断日志。
 
 日志会记录应用、轮询、代理、任务栏恢复和应用内更新关键事件，但不会记录 access token、refresh token、凭据文件内容或代理密码。详情见[故障排除](docs/troubleshooting.md)。
 
@@ -128,9 +128,9 @@ Codex 用量请求会在 TLS 连接中携带 OAuth Bearer Token，因此应只�
 
 当前正式版本为 **1.0.3**。程序菜单显示的 `v1.0.3` 和 Windows EXE 版本元数据都来自同一个包版本源；清理后的首个 Codex-only 安全基线版本为 `v1.0.0`。
 
-**设置**中的版本号可点击。点击后只检查 `walle-2017/codex-usage-monitor` 当前 Fork 的最新稳定 Release。最新版本发现通过 Fork 的 GitHub Release 重定向完成，不依赖 GitHub 未认证 REST API，因此不会受到共享代理出口常见的 REST API 60 次/小时/IP 配额影响。
+软件每次启动后会自动执行一次只读的 Release 更新检查。若发现更高的稳定版本，会先显示一条精简通知，并把**设置**中的版本号显示为 `v当前版本 --> v最新版本`；启动检查本身不会下载或安装更新。点击该版本号后才进入现有手动更新流程。版本发现仍只访问 `walle-2017/codex-usage-monitor` 当前 Fork 的最新稳定 Release，并通过 GitHub Release 重定向完成，不依赖 GitHub 未认证 REST API。
 
-发现新版本时，程序会下载 `codex-usage.exe` 与 `codex-usage.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。更新器在替换成功前保留回滚副本，也不会下载或执行 Release 中的 `install.ps1`。当前版本不会在启动时或后台定时检查更新。
+用户点击版本号并确认存在更高版本后，程序会下载 `codex-usage.exe` 与 `codex-usage.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。更新器在替换成功前保留回滚副本，也不会下载或执行 Release 中的 `install.ps1`。不会执行周期性后台更新检查；自动检查仅在每次软件启动后执行一次，并且只通知、不自动下载安装。
 
 ## 开源说明
 

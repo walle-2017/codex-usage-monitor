@@ -29,6 +29,7 @@ pub(super) const STRINGS: Strings = Strings {
     update_downloading: "正在更新到",
     update_success: "已成功更新到",
     update_current: "当前已是最新版本",
+    update_available: "发现新版本",
     update_check_failed: "检查更新失败",
     update_download_failed: "下载更新失败",
     update_checksum_failed: "更新文件校验失败",

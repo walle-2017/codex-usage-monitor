@@ -75,6 +75,7 @@ struct AppState {
     auth_watch_mode: poller::CredentialWatchMode,
     auth_watch_snapshot: poller::CredentialWatchSnapshot,
     last_poll_ok: bool,
+    available_update_version: Option<String>,
 
     taskbar_index: usize,
     tray_offset: i32,
@@ -1237,6 +1238,7 @@ pub fn run() {
                 auth_watch_mode: poller::CredentialWatchMode::ActiveSource,
                 auth_watch_snapshot: Vec::new(),
                 last_poll_ok: false,
+                available_update_version: None,
                 taskbar_index: settings.taskbar_index,
                 tray_offset: settings.tray_offset,
                 dragging: false,
@@ -1275,16 +1277,21 @@ pub fn run() {
         // Initial render via UpdateLayeredWindow (for embedded) or InvalidateRect (fallback)
         render_layered();
 
-        if let Some(version) = updater::successful_update_version_from_args() {
-            let strings = language.strings();
-            let message = format!("{} v{}", strings.update_success, version);
-            tray_icon::notify_info(
-                hwnd,
-                tray_icon::TrayIconKind::Codex,
-                strings.update_title,
-                &message,
-            );
-        }
+        let update_success_notified =
+            if let Some(version) = updater::successful_update_version_from_args() {
+                let strings = language.strings();
+                let message = format!("{} v{}", strings.update_success, version);
+                tray_icon::notify_info(
+                    hwnd,
+                    tray_icon::TrayIconKind::Codex,
+                    strings.update_title,
+                    &message,
+                );
+                true
+            } else {
+                false
+            };
+        updater::start_startup_update_check(hwnd, update_success_notified);
 
         // Poll timer: 15 minutes
         let initial_poll_ms = {
@@ -2380,6 +2387,42 @@ unsafe extern "system" fn wnd_proc(
             }
             LRESULT(0)
         }
+        updater::WM_APP_STARTUP_UPDATE_RESULT => {
+            if let Some(result) = updater::take_startup_update_result() {
+                match result {
+                    updater::StartupUpdateCheckResult::Available { version } => {
+                        let strings = {
+                            let mut state = lock_state();
+                            match state.as_mut() {
+                                Some(s) => {
+                                    s.available_update_version = Some(version.clone());
+                                    s.language.strings()
+                                }
+                                None => LanguageId::English.strings(),
+                            }
+                        };
+                        tray_icon::clear_notification(hwnd);
+                        let message = format!("{} v{}", strings.update_available, version);
+                        tray_icon::notify_info(
+                            hwnd,
+                            tray_icon::TrayIconKind::Codex,
+                            strings.update_title,
+                            &message,
+                        );
+                    }
+                    updater::StartupUpdateCheckResult::Current => {
+                        let mut state = lock_state();
+                        if let Some(s) = state.as_mut() {
+                            s.available_update_version = None;
+                        }
+                    }
+                    updater::StartupUpdateCheckResult::Failed => {
+                        diagnose::log("startup update check ended without a user notification");
+                    }
+                }
+            }
+            LRESULT(0)
+        }
         updater::WM_APP_UPDATE_PROGRESS => {
             while let Some(progress) = updater::take_progress() {
                 let strings = {
@@ -2679,6 +2722,7 @@ fn show_context_menu(hwnd: HWND) {
             show_weekly_window,
             alert_threshold_percent,
             appearance_preset,
+            available_update_version,
         ) = {
             let state = lock_state();
             match state.as_ref() {
@@ -2691,6 +2735,7 @@ fn show_context_menu(hwnd: HWND) {
                     s.show_weekly_window,
                     s.alert_threshold_percent,
                     s.appearance_preset,
+                    s.available_update_version.clone(),
                 ),
                 None => (
                     POLL_15_MIN,
@@ -2701,6 +2746,7 @@ fn show_context_menu(hwnd: HWND) {
                     true,
                     0,
                     AppearancePreset::Compact,
+                    None,
                 ),
             }
         };
@@ -2966,7 +3012,11 @@ fn show_context_menu(hwnd: HWND) {
             PCWSTR::from_raw(language_label.as_ptr()),
         );
         let _ = AppendMenuW(settings_menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let version_label = native_interop::wide_str(&format!("v{}", env!("CARGO_PKG_VERSION")));
+        let version_label_text = match available_update_version.as_deref() {
+            Some(latest) => format!("v{} --> v{}", env!("CARGO_PKG_VERSION"), latest),
+            None => format!("v{}", env!("CARGO_PKG_VERSION")),
+        };
+        let version_label = native_interop::wide_str(&version_label_text);
         let _ = AppendMenuW(
             settings_menu,
             MENU_ITEM_FLAGS(0),

@@ -29,6 +29,7 @@ pub(super) const STRINGS: Strings = Strings {
     update_downloading: "Mise à jour vers",
     update_success: "Mise à jour réussie vers",
     update_current: "Vous utilisez déjà la dernière version",
+    update_available: "Nouvelle version disponible",
     update_check_failed: "Échec de la recherche de mises à jour",
     update_download_failed: "Échec du téléchargement de la mise à jour",
     update_checksum_failed: "Échec de la vérification du fichier de mise à jour",

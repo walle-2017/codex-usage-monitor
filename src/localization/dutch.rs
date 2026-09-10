@@ -29,6 +29,7 @@ pub(super) const STRINGS: Strings = Strings {
     update_downloading: "Bijwerken naar",
     update_success: "Bijgewerkt naar",
     update_current: "De nieuwste versie is al geïnstalleerd",
+    update_available: "Nieuwe versie beschikbaar",
     update_check_failed: "Controleren op updates is mislukt",
     update_download_failed: "Downloaden van de update is mislukt",
     update_checksum_failed: "Verificatie van het updatebestand is mislukt",

@@ -32,12 +32,15 @@ const UPDATE_STAGE_UPDATING: u8 = 2;
 
 pub(crate) const WM_APP_UPDATE_RESULT: u32 = WM_APP + 21;
 pub(crate) const WM_APP_UPDATE_PROGRESS: u32 = WM_APP + 22;
+pub(crate) const WM_APP_STARTUP_UPDATE_RESULT: u32 = WM_APP + 23;
 
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static UPDATE_STAGE: AtomicU8 = AtomicU8::new(UPDATE_STAGE_IDLE);
 static UPDATE_SUCCESS_ARG_CONSUMED: AtomicBool = AtomicBool::new(false);
 static UPDATE_RESULT: Mutex<Option<UpdateUiResult>> = Mutex::new(None);
 static UPDATE_PROGRESS: Mutex<VecDeque<UpdateProgress>> = Mutex::new(VecDeque::new());
+static STARTUP_UPDATE_RESULT: Mutex<Option<StartupUpdateCheckResult>> = Mutex::new(None);
+static STARTUP_CHECK_STARTED: AtomicBool = AtomicBool::new(false);
 static LAST_ERROR_DETAIL: Mutex<String> = Mutex::new(String::new());
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +65,13 @@ pub(crate) enum UpdateUiResult {
 pub(crate) enum UpdateProgress {
     Checking,
     Updating { version: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum StartupUpdateCheckResult {
+    Current,
+    Available { version: String },
+    Failed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -252,6 +262,12 @@ fn lock_progress() -> MutexGuard<'static, VecDeque<UpdateProgress>> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
+fn lock_startup_result() -> MutexGuard<'static, Option<StartupUpdateCheckResult>> {
+    STARTUP_UPDATE_RESULT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
 fn post_progress(hwnd_raw: isize, progress: UpdateProgress) {
     diagnose::log(format!("updater: progress={progress:?}"));
     lock_progress().push_back(progress);
@@ -263,6 +279,46 @@ fn post_progress(hwnd_raw: isize, progress: UpdateProgress) {
 
 pub(crate) fn take_progress() -> Option<UpdateProgress> {
     lock_progress().pop_front()
+}
+
+pub(crate) fn start_startup_update_check(hwnd: HWND, after_update_success: bool) {
+    if STARTUP_CHECK_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    let hwnd_raw = hwnd.0 as isize;
+    std::thread::spawn(move || {
+        if after_update_success {
+            std::thread::sleep(Duration::from_millis(1_500));
+        }
+        diagnose::log("updater: startup release check started");
+        let result = match discover_release_update() {
+            Ok((_current, Some(update))) => StartupUpdateCheckResult::Available {
+                version: update.version,
+            },
+            Ok((_current, None)) => StartupUpdateCheckResult::Current,
+            Err(error) => {
+                diagnose::log(format!(
+                    "updater: startup release check failed error={error:?}"
+                ));
+                StartupUpdateCheckResult::Failed
+            }
+        };
+        *lock_startup_result() = Some(result);
+        let target_hwnd = HWND(hwnd_raw as *mut _);
+        unsafe {
+            let _ = PostMessageW(
+                target_hwnd,
+                WM_APP_STARTUP_UPDATE_RESULT,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    });
+}
+
+pub(crate) fn take_startup_update_result() -> Option<StartupUpdateCheckResult> {
+    lock_startup_result().take()
 }
 
 pub(crate) fn start_update(hwnd: HWND) -> bool {
@@ -409,7 +465,7 @@ fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
         .set("Accept", "*/*")
 }
 
-fn prepare_update(hwnd_raw: isize) -> Result<UpdateOutcome, UpdateError> {
+fn discover_release_update() -> Result<(String, Option<ReleaseUpdate>), UpdateError> {
     let current_text = env!("CARGO_PKG_VERSION");
     diagnose::log(format!(
         "updater: checking latest Release current={current_text}"
@@ -447,19 +503,30 @@ fn prepare_update(hwnd_raw: isize) -> Result<UpdateOutcome, UpdateError> {
 
     if latest <= current {
         diagnose::log("updater: current version is already latest");
-        return Ok(UpdateOutcome::Current {
-            version: current_text.to_string(),
-        });
+        return Ok((current_text.to_string(), None));
     }
+
+    Ok((
+        current_text.to_string(),
+        Some(release_update_for_version(&latest_text)),
+    ))
+}
+
+fn prepare_update(hwnd_raw: isize) -> Result<UpdateOutcome, UpdateError> {
+    let (current_version, update) = discover_release_update()?;
+    let Some(update) = update else {
+        return Ok(UpdateOutcome::Current {
+            version: current_version,
+        });
+    };
 
     UPDATE_STAGE.store(UPDATE_STAGE_UPDATING, Ordering::Release);
     post_progress(
         hwnd_raw,
         UpdateProgress::Updating {
-            version: latest_text.clone(),
+            version: update.version.clone(),
         },
     );
-    let update = release_update_for_version(&latest_text);
     let agent = build_agent()?;
     let staging_dir = unique_staging_dir();
     fs::create_dir_all(&staging_dir).map_err(|error| {
