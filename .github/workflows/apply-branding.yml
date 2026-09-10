@@ -1,0 +1,265 @@
+name: Apply Codex Usage Win branding
+
+on:
+  push:
+    branches:
+      - feature/codex-usage-win-branding
+    paths:
+      - .github/workflows/apply-branding.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/codex-usage-win-branding
+          fetch-depth: 0
+
+      - name: Apply rename and compatibility changes
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8', newline='\n')
+
+          def replace_required(path, old, new):
+              text = read(path)
+              if old not in text:
+                  raise SystemExit(f"required text not found in {path}: {old[:120]!r}")
+              write(path, text.replace(old, new))
+
+          # Product/package identity and version.
+          p = 'Cargo.toml'
+          text = read(p)
+          text = text.replace('version = "1.0.3"', 'version = "1.0.4"', 1)
+          text = text.replace('name = "codex-usage"', 'name = "codex-usage-win"', 1)
+          text = text.replace('description = "Codex Usage"', 'description = "Codex Usage Win"', 1)
+          text = text.replace('ProductName = "Codex Usage"', 'ProductName = "Codex Usage Win"')
+          text = text.replace('FileDescription = "Codex Usage"', 'FileDescription = "Codex Usage Win"')
+          text = text.replace('OriginalFilename = "codex-usage.exe"', 'OriginalFilename = "codex-usage-win.exe"')
+          text = text.replace('InternalName = "CodexUsage"', 'InternalName = "CodexUsageWin"')
+          write(p, text)
+
+          p = 'Cargo.lock'
+          text = read(p)
+          old = 'name = "codex-usage"\nversion = "1.0.3"'
+          new = 'name = "codex-usage-win"\nversion = "1.0.4"'
+          if old not in text:
+              raise SystemExit('Cargo.lock root package block not found')
+          write(p, text.replace(old, new, 1))
+
+          # Updater file/notification identity. New builds emit the new success arg but accept
+          # the v1.0.3 legacy one-shot arg so an existing installation can hand off success state.
+          p = 'src/updater.rs'
+          text = read(p)
+          text = text.replace('const EXE_ASSET_NAME: &str = "codex-usage.exe";', 'const EXE_ASSET_NAME: &str = "codex-usage-win.exe";')
+          text = text.replace('const CHECKSUM_ASSET_NAME: &str = "codex-usage.exe.sha256";', 'const CHECKSUM_ASSET_NAME: &str = "codex-usage-win.exe.sha256";')
+          text = text.replace(
+              'const UPDATE_SUCCESS_ARG_PREFIX: &str = "--codex-usage-updated-to=";',
+              'const UPDATE_SUCCESS_ARG_PREFIX: &str = "--codex-usage-win-updated-to=";\nconst LEGACY_UPDATE_SUCCESS_ARG_PREFIX: &str = "--codex-usage-updated-to=";'
+          )
+          text = text.replace('CodexUsage-Updater/', 'CodexUsageWin-Updater/')
+          text = text.replace('codex-usage-update-', 'codex-usage-win-update-')
+          text = text.replace('.codex-usage-update-probe-', '.codex-usage-win-update-probe-')
+          text = text.replace("$UninstallKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexUsage'", "$UninstallKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexUsageWin'")
+          text = text.replace("'codex-usage.exe'\n                $MatchesTarget", "'codex-usage-win.exe'\n                $MatchesTarget")
+          old_fn = '''pub(crate) fn is_internal_update_arg(arg: &str) -> bool {
+              arg.starts_with(UPDATE_SUCCESS_ARG_PREFIX)
+          }
+
+          fn successful_update_version_from_iter<I>(args: I, current_version: &str) -> Option<String>
+          where
+              I: IntoIterator<Item = String>,
+          {
+              args.into_iter().find_map(|arg| {
+                  let version = arg.strip_prefix(UPDATE_SUCCESS_ARG_PREFIX)?;
+                  if Version::parse(version).is_some() && version == current_version {
+                      Some(version.to_string())
+                  } else {
+                      None
+                  }
+              })
+          }'''.replace('          ', '')
+          new_fn = '''pub(crate) fn is_internal_update_arg(arg: &str) -> bool {
+              arg.starts_with(UPDATE_SUCCESS_ARG_PREFIX)
+                  || arg.starts_with(LEGACY_UPDATE_SUCCESS_ARG_PREFIX)
+          }
+
+          fn successful_update_version_from_iter<I>(args: I, current_version: &str) -> Option<String>
+          where
+              I: IntoIterator<Item = String>,
+          {
+              args.into_iter().find_map(|arg| {
+                  let version = arg
+                      .strip_prefix(UPDATE_SUCCESS_ARG_PREFIX)
+                      .or_else(|| arg.strip_prefix(LEGACY_UPDATE_SUCCESS_ARG_PREFIX))?;
+                  if Version::parse(version).is_some() && version == current_version {
+                      Some(version.to_string())
+                  } else {
+                      None
+                  }
+              })
+          }'''.replace('          ', '')
+          if old_fn not in text:
+              raise SystemExit('updater success-argument function block not found')
+          text = text.replace(old_fn, new_fn, 1)
+          # Test literals and expected release asset names use the new identity.
+          text = text.replace('--codex-usage-updated-to=1.2.3', '--codex-usage-win-updated-to=1.2.3')
+          text = text.replace('--codex-usage-updated-to=9.9.9', '--codex-usage-win-updated-to=9.9.9')
+          text = text.replace('/codex-usage.exe.sha256"', '/codex-usage-win.exe.sha256"')
+          text = text.replace('/codex-usage.exe"', '/codex-usage-win.exe"')
+          text = text.replace('  codex-usage.exe"', '  codex-usage-win.exe"')
+          text = text.replace(r'C:\Tools\codex-usage.exe.new', r'C:\Tools\codex-usage-win.exe.new')
+          text = text.replace(r'C:\Tools\codex-usage.exe', r'C:\Tools\codex-usage-win.exe')
+          # Add an explicit legacy-argument assertion after the new-prefix assertion.
+          marker = 'assert!(is_internal_update_arg("--codex-usage-win-updated-to=1.2.3"));'
+          if marker in text and 'assert!(is_internal_update_arg("--codex-usage-updated-to=1.2.3"));' not in text:
+              text = text.replace(marker, marker + '\n        assert!(is_internal_update_arg("--codex-usage-updated-to=1.2.3"));', 1)
+          write(p, text)
+
+          # Keep the existing settings directory for seamless settings compatibility, while
+          # migrating the current v1.0.3 startup value name to the new product identity.
+          p = 'src/window.rs'
+          text = read(p)
+          text = text.replace('const STARTUP_REGISTRY_KEY: &str = "CodexUsage";', 'const STARTUP_REGISTRY_KEY: &str = "CodexUsageWin";')
+          text = text.replace('const LEGACY_STARTUP_REGISTRY_KEY: &str = "ClaudeCodeUsageMonitor";', 'const LEGACY_STARTUP_REGISTRY_KEY: &str = "CodexUsage";')
+          text = text.replace('migrated legacy startup registry entry to CodexUsage', 'migrated legacy startup registry entry to CodexUsageWin')
+          text = text.replace('native_interop::wide_str("Global\\\\CodexUsage")', 'native_interop::wide_str("Global\\\\CodexUsageWin")')
+          text = text.replace('native_interop::wide_str("CodexUsage")', 'native_interop::wide_str("CodexUsageWin")')
+          write(p, text)
+
+          # Diagnostic file follows the kebab-case executable identity; logging remains --diagnose-only.
+          p = 'src/diagnose.rs'
+          text = read(p).replace('codex-usage.log', 'codex-usage-win.log')
+          write(p, text)
+
+          # All localized Windows titles and update notification titles use the new product name.
+          for pth in Path('src/localization').glob('*.rs'):
+              if pth.name == 'mod.rs':
+                  continue
+              text = pth.read_text(encoding='utf-8')
+              text = text.replace('window_title: "Codex Usage"', 'window_title: "Codex Usage Win"')
+              text = text.replace('update_title: "Codex Usage ', 'update_title: "Codex Usage Win ')
+              pth.write_text(text, encoding='utf-8', newline='\n')
+
+          # Clean-install/portable package identity. Settings stay at %APPDATA%\\CodexUsage.
+          p = 'scripts/install.ps1'
+          text = read(p)
+          replacements = [
+              ('Programs\\CodexUsage', 'Programs\\CodexUsageWin'),
+              ('codex-usage.exe.sha256', 'codex-usage-win.exe.sha256'),
+              ('codex-usage.exe', 'codex-usage-win.exe'),
+              ('Codex Usage.lnk', 'Codex Usage Win.lnk'),
+              ('Uninstall\\CodexUsage', 'Uninstall\\CodexUsageWin'),
+              ("-Name 'CodexUsage'", "-Name 'CodexUsageWin'"),
+              ("-Name 'CodexUsage' -Value", "-Name 'CodexUsageWin' -Value"),
+              ('CodexUsage-Installer', 'CodexUsageWin-Installer'),
+              ("DisplayName -Value 'Codex Usage'", "DisplayName -Value 'Codex Usage Win'"),
+              ("Shortcut.Description = 'Codex Usage'", "Shortcut.Description = 'Codex Usage Win'"),
+              ('Codex Usage $InstalledVersion installed', 'Codex Usage Win $InstalledVersion installed'),
+              ('codex-usage-install-', 'codex-usage-win-install-'),
+          ]
+          for old, new in replacements:
+              text = text.replace(old, new)
+          write(p, text)
+
+          p = 'scripts/uninstall.ps1'
+          text = read(p)
+          replacements = [
+              ('Programs\\CodexUsage', 'Programs\\CodexUsageWin'),
+              ('codex-usage.exe', 'codex-usage-win.exe'),
+              ('Codex Usage.lnk', 'Codex Usage Win.lnk'),
+              ('Uninstall\\CodexUsage', 'Uninstall\\CodexUsageWin'),
+              ("-Name 'CodexUsage'", "-Name 'CodexUsageWin'"),
+              ("'Codex Usage was uninstalled.'", "'Codex Usage Win was uninstalled.'"),
+          ]
+          for old, new in replacements:
+              text = text.replace(old, new)
+          # Preserve existing settings storage name despite broad installation renames.
+          text = text.replace("$SettingsDirectory = Join-Path $env:APPDATA 'CodexUsageWin'", "$SettingsDirectory = Join-Path $env:APPDATA 'CodexUsage'")
+          text = text.replace("Join-Path $env:APPDATA 'CodexUsageWin')).TrimEnd", "Join-Path $env:APPDATA 'CodexUsage')).TrimEnd")
+          # Remove current and previous startup names on uninstall.
+          needle = "Remove-ItemProperty -Path $RunKey -Name 'CodexUsageWin' -ErrorAction SilentlyContinue"
+          if needle in text and "-Name 'CodexUsage' -ErrorAction SilentlyContinue" not in text:
+              text = text.replace(needle, needle + "\n    Remove-ItemProperty -Path $RunKey -Name 'CodexUsage' -ErrorAction SilentlyContinue", 1)
+          write(p, text)
+
+          # CI/release asset names and package paths.
+          p = '.github/workflows/release.yml'
+          text = read(p).replace('codex-usage.exe', 'codex-usage-win.exe')
+          write(p, text)
+
+          p = '.github/workflows/safe-build.yml'
+          text = read(p)
+          text = text.replace('Verify v1.0.3 version contract', 'Verify v1.0.4 version contract')
+          text = text.replace('target/release/codex-usage.exe', 'target/release/codex-usage-win.exe')
+          text = text.replace('dist/codex-usage.exe.sha256', 'dist/codex-usage-win.exe.sha256')
+          text = text.replace('dist/codex-usage.exe', 'dist/codex-usage-win.exe')
+          text = text.replace('codex-usage-safe-windows-x64', 'codex-usage-win-safe-windows-x64')
+          write(p, text)
+
+          # Existing regression contracts follow the renamed package without relaxing security rules.
+          p = 'scripts/assert-v1-version.ps1'
+          text = read(p)
+          text = text.replace("$ExpectedVersion = '1.0.3'", "$ExpectedVersion = '1.0.4'")
+          text = text.replace('name\\s*=\\s*"codex-usage"', 'name\\s*=\\s*"codex-usage-win"')
+          text = text.replace('Unable to locate codex-usage in Cargo.lock.', 'Unable to locate codex-usage-win in Cargo.lock.')
+          text = text.replace('Cargo.lock codex-usage version', 'Cargo.lock codex-usage-win version')
+          write(p, text)
+
+          p = 'scripts/assert-auto-update.ps1'
+          text = read(p)
+          text = text.replace('codex-usage\\.exe\\.sha256', 'codex-usage-win\\.exe\\.sha256')
+          text = text.replace('FileDescription\\s*=\\s*"Codex Usage"', 'FileDescription\\s*=\\s*"Codex Usage Win"')
+          text = text.replace('concise Codex Usage name', 'Codex Usage Win name')
+          text = text.replace('UPDATE_SUCCESS_ARG_PREFIX\\s*:\\s*&str\\s*=\\s*"--codex-usage-updated-to="', 'UPDATE_SUCCESS_ARG_PREFIX\\s*:\\s*&str\\s*=\\s*"--codex-usage-win-updated-to="')
+          write(p, text)
+
+          p = 'scripts/assert-runtime-log.ps1'
+          text = read(p).replace('codex-usage\\.log', 'codex-usage-win\\.log').replace('codex-usage.log', 'codex-usage-win.log')
+          write(p, text)
+
+          # Active user-facing docs adopt the new product/file/log names. Historical superpowers docs are untouched.
+          docs = ['README.md', 'README.zh-CN.md', 'README-FORK.md', 'docs/installation.md', 'docs/troubleshooting.md']
+          for p in docs:
+              text = read(p)
+              text = text.replace('Codex Usage', 'Codex Usage Win')
+              text = text.replace('codex-usage.exe.sha256', 'codex-usage-win.exe.sha256')
+              text = text.replace('codex-usage.exe', 'codex-usage-win.exe')
+              text = text.replace('codex-usage.log', 'codex-usage-win.log')
+              text = text.replace('--codex-usage-updated-to=', '--codex-usage-win-updated-to=')
+              write(p, text)
+
+          p = 'scripts/assert-final-docs.ps1'
+          text = read(p)
+          text = text.replace("if (-not $ForkReadme.Contains('1.0.3'))", "if (-not $ForkReadme.Contains('1.0.4'))")
+          text = text.replace('current 1.0.3 release', 'current 1.0.4 release')
+          text = text.replace('codex-usage.exe.sha256', 'codex-usage-win.exe.sha256')
+          text = text.replace('--codex-usage-updated-to=', '--codex-usage-win-updated-to=')
+          text = text.replace('codex-usage.log.1', 'codex-usage-win.log.1')
+          text = text.replace('codex-usage.log', 'codex-usage-win.log')
+          text = text.replace('Codex-only v1.0.3 product state', 'Codex-only v1.0.4 product state')
+          write(p, text)
+          '@ | Set-Content -LiteralPath apply_branding.py -Encoding UTF8
+          python apply_branding.py
+          Remove-Item apply_branding.py -Force
+
+      - name: Commit branding implementation
+        shell: pwsh
+        run: |
+          git config user.name "walle-2017"
+          git config user.email "1220754120@qq.com"
+          git add Cargo.toml Cargo.lock src scripts .github/workflows/safe-build.yml .github/workflows/release.yml README.md README.zh-CN.md README-FORK.md docs/installation.md docs/troubleshooting.md
+          if (git diff --cached --quiet) { throw 'Branding transform produced no changes.' }
+          git commit -m "feat: rename application to Codex Usage Win"
+          git push origin HEAD:feature/codex-usage-win-branding
