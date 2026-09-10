@@ -47,7 +47,7 @@ Assert-Contains $Uninstall "codex-usage-win.exe" 'Uninstaller must target codex-
 Assert-Contains $Uninstall "Codex Usage Win.lnk" 'Uninstaller shortcuts must use Codex Usage Win.'
 Assert-Contains $Uninstall "Uninstall\CodexUsageWin" 'Uninstaller registry key must use CodexUsageWin.'
 Assert-Contains $Uninstall "Write-Output 'Codex Usage Win was uninstalled.'" 'Uninstaller message must use Codex Usage Win.'
-Assert-Contains $Uninstall "Join-Path $env:APPDATA 'CodexUsage'" 'Existing settings directory must remain CodexUsage for upgrade compatibility.'
+Assert-Contains $Uninstall '$SettingsDirectory = Join-Path $env:APPDATA ''CodexUsage''' 'Existing settings directory must remain CodexUsage for upgrade compatibility.'
 
 Assert-Contains $ReleaseWorkflow 'RELEASE_ASSET_NAME: codex-usage-win.exe' 'Release workflow asset name must be codex-usage-win.exe.'
 Assert-Contains $ReleaseWorkflow 'target/release/codex-usage-win.exe' 'Release workflow must package the renamed binary.'
