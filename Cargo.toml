@@ -1,18 +1,18 @@
 [package]
-name = "codex-usage"
+name = "codex-usage-win"
 version = "1.0.3"
 edition = "2021"
 license = "MIT"
-description = "Codex Usage"
+description = "Codex Usage Win"
 homepage = "https://github.com/walle-2017/codex-usage-monitor"
 repository = "https://github.com/walle-2017/codex-usage-monitor"
 
 [package.metadata.winres]
 CompanyName = "Ray"
-ProductName = "Codex Usage"
-FileDescription = "Codex Usage"
-OriginalFilename = "codex-usage.exe"
-InternalName = "CodexUsage"
+ProductName = "Codex Usage Win"
+FileDescription = "Codex Usage Win"
+OriginalFilename = "codex-usage-win.exe"
+InternalName = "CodexUsageWin"
 Comments = "Derived from Claude Code Usage Monitor under the MIT License"
 LegalCopyright = "Original copyright (C) 2026 Code Zeno Pty Ltd; modifications (C) 2026 Ray"
 
