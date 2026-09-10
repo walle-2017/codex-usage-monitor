@@ -29,7 +29,9 @@ The installer expects `codex-usage.exe`, `codex-usage.exe.sha256`, and `uninstal
 %APPDATA%\CodexUsage\settings.json
 ```
 
-The application has no built-in update checker or updater. To upgrade, explicitly install a newer fork Release or replace the portable executable yourself.
+Both installed and portable writable copies support the manually initiated in-app updater. Open **Settings** and click the displayed version. Codex Usage checks only the latest stable Release from `walle-2017/codex-usage-monitor`, downloads `codex-usage.exe` plus `codex-usage.exe.sha256`, verifies SHA256, stages the replacement beside the running executable, and restarts automatically.
+
+The updater does not request UAC elevation. If the executable directory is not writable, the running version is left unchanged. It never downloads or executes the Release `install.ps1` as part of an in-app update.
 
 ## Settings and startup behavior
 
@@ -45,11 +47,12 @@ Current settings include taskbar position/screen, polling frequency, language, a
 
 ## Release integrity
 
-The release executable is accompanied by `codex-usage.exe.sha256`. The PowerShell installer computes SHA256 for the staged executable and aborts installation if it does not match the expected release checksum.
+The release executable is accompanied by `codex-usage.exe.sha256`. The PowerShell installer and in-app updater both verify the staged executable against the Release checksum before replacement.
 
-For the v1.0.0 baseline, the executable's Windows FileVersion/ProductVersion and the application's read-only version menu are both derived from the Cargo package version.
+The executable's Windows FileVersion/ProductVersion and the application's version menu are derived from the Cargo package version.
 
-## Updating from the running app
+## In-app update behavior
 
-Open the tray context menu, choose **Settings**, and click the displayed version. Codex Usage checks only the latest stable Release from `walle-2017/codex-usage-monitor`. A newer release is downloaded and SHA256-verified before the current process exits. Installed and portable writable locations are supported.
+The version item is user-triggered only; there is no startup or periodic background update check. Latest-version discovery uses the fork's GitHub `releases/latest` redirect and strictly accepts only this repository's stable numeric `vX.Y.Z` tag path.
 
+Replacement uses a generated local one-shot PowerShell helper. The helper waits for the old process to exit, preserves the old executable as `.old`, installs the verified `.new` file, rolls back on replacement/relaunch failure, and restarts the new executable with a one-shot internal success argument. That argument is consumed by the new process and does not create a persistent marker file in the program directory.
