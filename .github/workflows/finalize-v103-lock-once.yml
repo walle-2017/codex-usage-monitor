@@ -1,0 +1,60 @@
+name: Finalize v1.0.3 Lock Once
+
+on:
+  push:
+    branches:
+      - feature/auto-update
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auto-update
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Refresh root package lock version
+        run: cargo check
+
+      - name: Verify release contracts
+        shell: pwsh
+        run: |
+          ./scripts/assert-no-codex-cli-refresh.ps1
+          ./scripts/assert-codex-only-runtime.ps1
+          ./scripts/assert-clean-codex-only-source.ps1
+          ./scripts/assert-v1-version.ps1
+          ./scripts/assert-final-docs.ps1
+          ./scripts/assert-drag-handler-safe.ps1
+          ./scripts/assert-live-drag-anchor.ps1
+          ./scripts/assert-compact-ui.ps1
+          ./scripts/assert-small-taskbar-ui.ps1
+          ./scripts/assert-language-independent-quota.ps1
+          ./scripts/assert-auto-update.ps1
+          ./scripts/assert-runtime-log.ps1
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Commit lockfile and remove one-shot workflow
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/finalize-v103-lock-once.yml
+          git add Cargo.lock
+          git commit -m "release: finalize v1.0.3 lockfile"
+          git push origin HEAD:feature/auto-update
