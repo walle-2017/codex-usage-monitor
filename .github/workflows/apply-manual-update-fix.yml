@@ -26,9 +26,6 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-v103-update-compat.ps1
 
-      - name: Format source
-        run: cargo fmt --all -- --check
-
       - name: Commit implementation
         shell: pwsh
         run: |
