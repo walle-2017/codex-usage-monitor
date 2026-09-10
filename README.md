@@ -9,7 +9,7 @@
 
 ![Screenshot](.github/animation.gif)
 
-A lightweight native Windows taskbar widget for monitoring **Codex usage**. The current v1.0.2 fork is intentionally Codex-only: it reads the credentials already maintained by Codex and shows the remaining 5-hour and weekly quota directly in the taskbar.
+A lightweight native Windows taskbar widget for monitoring **Codex usage**. The current v1.0.3 fork is intentionally Codex-only: it reads the credentials already maintained by Codex and shows the remaining 5-hour and weekly quota directly in the taskbar.
 
 ## Features
 
@@ -17,7 +17,7 @@ A lightweight native Windows taskbar widget for monitoring **Codex usage**. The 
 - Reset time/date display and live countdown data
 - Compact and minimal taskbar appearances
 - Independent visibility controls for the 5h and 7d rows, with at least one row always visible
-- Optional low-quota alerts at 10%, 20%, or 30% remaining, deduplicated per reset window
+- Optional low-quota alerts at 10%, 20%, or 30% remaining, deduplicated per reset window and aggregated into one concise Windows notification per poll
 - Configurable refresh interval: 1 minute, 5 minutes, 15 minutes, or 1 hour
 - Windows light/dark theme support
 - Simplified Chinese and multiple other UI languages
@@ -25,6 +25,7 @@ A lightweight native Windows taskbar widget for monitoring **Codex usage**. The 
 - Explorer restart watchdog and single-instance protection
 - Windows manual system-proxy support when explicit proxy environment variables are absent
 - One tray icon for refresh/settings/exit while the taskbar widget remains visible
+- Manual in-app update from this fork's latest stable Release, with SHA256 verification, rollback, restart, and concise Windows notifications
 
 ## Safety behavior
 
@@ -73,14 +74,14 @@ Run `codex-usage.exe` or the installed shortcut. The widget embeds into the sele
 
 - Drag the left handle to reposition the widget.
 - On multi-monitor systems, keep holding the mouse button and drag onto another taskbar; the widget reattaches immediately, keeps the pointer aligned to the same logical point on the drag handle, and continues following the cursor across different DPI settings.
-- Right-click the widget or tray icon for Refresh, Update Frequency, usage-row controls, quota alerts, Appearance, Start with Windows, Reset Position, Language, the read-only version entry, and Exit.
+- Right-click the widget or tray icon for Refresh, Update Frequency, usage-row controls, quota alerts, Appearance, Start with Windows, Reset Position, Language, the clickable version entry, and Exit.
 - The taskbar widget is intentionally always visible while the process is running; there is no hide/show toggle.
 
 ### Usage display and alerts
 
 The widget shows remaining quota consistently in every language. Progress length, percentage text, and semantic status color all use the same remaining-quota value.
 
-Use the settings menu to show both quota windows or only one. Low-quota alerts can be set to 10%, 20%, or 30% remaining and are emitted once per quota-reset window.
+Use the settings menu to show both quota windows or only one. Low-quota alerts can be set to 10%, 20%, or 30% remaining and are emitted once per quota-reset window. If multiple quota windows cross the threshold in the same poll, they are combined into one concise Windows notification.
 
 ### Appearance
 
@@ -105,13 +106,9 @@ Because the Codex request includes an OAuth Bearer token inside TLS, only use pr
 
 ## Diagnostics
 
-Run:
+Runtime logging is enabled automatically. `codex-usage.log` is written beside the running executable and is retained across restarts. At 5 MB it rotates to `codex-usage.log.1`, keeping only the current and previous log.
 
-```powershell
-codex-usage.exe --diagnose
-```
-
-The log is written to `%TEMP%\codex-usage.log`. It records application/version information, executable path, polling failure category, retry timing, and taskbar recovery events. It does not record access tokens or credential-file contents. See [Troubleshooting](docs/troubleshooting.md).
+The log records key application, polling, proxy, taskbar-recovery, and in-app-update events. It does not record access tokens, refresh tokens, credential-file contents, or proxy passwords. See [Troubleshooting](docs/troubleshooting.md).
 
 Settings are stored at:
 
@@ -127,11 +124,13 @@ The application reads the local Codex access token/account identifier and sends 
 
 The monitor does not directly edit `auth.json` and does not start Codex CLI processes for authentication recovery.
 
-## Version and releases
+## Version and in-app updates
 
-The current release is **1.0.2**. The in-app menu displays `v1.0.2` from the package version, and Windows executable metadata is generated from the same source. The initial cleaned Codex-only safety baseline was `v1.0.0`.
+The current release is **1.0.3**. The in-app menu displays `v1.0.3` from the package version, and Windows executable metadata is generated from the same source. The initial cleaned Codex-only safety baseline was `v1.0.0`.
 
-The application itself contains no update checker or in-app updater. Upgrades are explicit: install a newer fork release or replace the portable executable yourself.
+The version row in **Settings** is clickable. Clicking it checks only the latest stable Release of `walle-2017/codex-usage-monitor`. Latest-version discovery uses the fork's GitHub Release redirect rather than the unauthenticated GitHub REST API, avoiding the shared-IP REST rate limit encountered with public proxy exits.
+
+If a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. The updater keeps a rollback copy until replacement succeeds and never downloads or executes a Release `install.ps1`. There is no startup or periodic background update check.
 
 ## Open source
 
@@ -140,8 +139,3 @@ This project is licensed under the MIT License. The original [LICENSE](LICENSE) 
 Codex Usage is derived from [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) and later upstream work. The current fork is maintained independently and is not affiliated with or endorsed by upstream maintainers or OpenAI.
 
 See [README-FORK.md](README-FORK.md) for the fork-specific safety and maintenance baseline.
-
-### In-app update check
-
-The version row in **Settings** is clickable. Clicking it checks only the latest stable Release of `walle-2017/codex-usage-monitor`. If a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. There is no startup or periodic background update check.
-
