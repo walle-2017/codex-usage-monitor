@@ -16,12 +16,12 @@ function Assert-Match {
     if ($Text -notmatch $Pattern) { throw $Message }
 }
 
-Assert-Match $diagnose 'const\s+LOG_FILE_NAME\s*:\s*&str\s*=\s*"codex-usage\.log"' 'Runtime log must use codex-usage.log.'
+Assert-Match $diagnose 'const\s+LOG_FILE_NAME\s*:\s*&str\s*=\s*"codex-usage-win\.log"' 'Runtime log must use codex-usage-win.log.'
 Assert-Match $diagnose 'const\s+MAX_LOG_BYTES\s*:\s*u64\s*=\s*5\s*\*\s*1024\s*\*\s*1024' 'Runtime log rotation threshold must be 5 MB.'
 Assert-Match $diagnose 'current_exe\(\)' 'Runtime log path must derive from the current executable.'
 Assert-Match $diagnose '\.parent\(\)' 'Runtime log must be created beside the executable.'
 Assert-Match $diagnose '\.append\(true\)' 'Runtime log must append across restarts.'
-Assert-Match $diagnose 'codex-usage\.log\.1|with_file_name\(' 'Runtime log must rotate to a single .1 backup.'
+Assert-Match $diagnose 'codex-usage-win\.log\.1|with_file_name\(' 'Runtime log must rotate to a single .1 backup.'
 Assert-Match $diagnose 'metadata\(' 'Runtime log rotation must inspect file size.'
 Assert-Match $main '"--diagnose"' 'Runtime logging must require the --diagnose flag.'
 Assert-Match $main 'diagnose_enabled' 'main.rs must explicitly gate runtime logging.'

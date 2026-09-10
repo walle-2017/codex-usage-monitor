@@ -3,9 +3,9 @@
 
 [English](README.md) | **简体中文**
 
-# Codex Usage
+# Codex Usage Win
 
-<img src=".github/codex-usage-icon.png" alt="Codex Usage 图标" width="96" height="96">
+<img src=".github/codex-usage-icon.png" alt="Codex Usage Win 图标" width="96" height="96">
 
 ![运行效果](.github/animation.gif)
 
@@ -33,7 +33,7 @@
 
 程序从 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json` 读取 Codex 凭据，并通过 HTTPS 请求 Codex 用量接口。如果接口返回 `401` 或 `403`，监控器会显示认证错误并暂停轮询，直到本地凭据来源发生变化。它**不会启动 `codex.exe`、`codex.cmd`、`codex.ps1`，也不会执行 `codex exec`** 来刷新凭据。
 
-登录失效时，请由你自己通过官方 Codex CLI / Codex 应用重新登录，然后刷新或重启 Codex Usage。
+登录失效时，请由你自己通过官方 Codex CLI / Codex 应用重新登录，然后刷新或重启 Codex Usage Win。
 
 ## 系统要求
 
@@ -50,17 +50,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 
 安装程序会校验 Release 文件的 SHA256，无需管理员权限，安装到 `%LOCALAPPDATA%\Programs\CodexUsage`，并创建开始菜单、桌面快捷方式和 Windows“已安装的应用”卸载项。
 
-如需便携使用，可从同一 Release 下载 `codex-usage.exe` 并直接运行。也可以本地构建：
+如需便携使用，可从同一 Release 下载 `codex-usage-win.exe` 并直接运行。也可以本地构建：
 
 ```powershell
 cargo build --release
 ```
 
-可执行文件位于 `target\release\codex-usage.exe`。
+可执行文件位于 `target\release\codex-usage-win.exe`。
 
 ## 卸载
 
-可在 Windows“设置”>“应用”>“已安装的应用”中卸载 **Codex Usage**，或运行：
+可在 Windows“设置”>“应用”>“已安装的应用”中卸载 **Codex Usage Win**，或运行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexUsage\uninstall.ps1"
@@ -70,7 +70,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Progr
 
 ## 使用
 
-运行 `codex-usage.exe` 或安装后的快捷方式。程序会把组件嵌入所选 Windows 任务栏，同时在通知区域保留一个托盘图标。
+运行 `codex-usage-win.exe` 或安装后的快捷方式。程序会把组件嵌入所选 Windows 任务栏，同时在通知区域保留一个托盘图标。
 
 - 拖动左侧手柄可调整组件位置。
 - 多显示器环境下，保持按住鼠标并将组件拖入另一块屏幕的任务栏，组件会立即重新挂载；鼠标会继续保持在拖动手柄相同的逻辑抓取位置，并根据目标任务栏 DPI 自动换算，在不同缩放比例的显示器之间继续跟随。
@@ -106,7 +106,7 @@ Codex 用量请求会在 TLS 连接中携带 OAuth Bearer Token，因此应只�
 
 ## 诊断日志
 
-运行日志改为按需启用。只有使用 `--diagnose` 启动 Codex Usage 时，才会在当前 `codex-usage.exe` 同目录创建或追加 `codex-usage.log`；达到 5 MB 时轮转为 `codex-usage.log.1`，只保留当前和上一份日志。普通启动不会创建或写入诊断日志。
+运行日志改为按需启用。只有使用 `--diagnose` 启动 Codex Usage Win 时，才会在当前 `codex-usage-win.exe` 同目录创建或追加 `codex-usage-win.log`；达到 5 MB 时轮转为 `codex-usage-win.log.1`，只保留当前和上一份日志。普通启动不会创建或写入诊断日志。
 
 日志会记录应用、轮询、代理、任务栏恢复和应用内更新关键事件，但不会记录 access token、refresh token、凭据文件内容或代理密码。详情见[故障排除](docs/troubleshooting.md)。
 
@@ -130,12 +130,12 @@ Codex 用量请求会在 TLS 连接中携带 OAuth Bearer Token，因此应只�
 
 软件每次启动后会自动执行一次只读的 Release 更新检查。若发现更高的稳定版本，会先显示一条精简通知，并把**设置**中的版本号显示为 `v当前版本 --> v最新版本`；启动检查本身不会下载或安装更新。点击该版本号后才进入现有手动更新流程。版本发现仍只访问 `walle-2017/codex-usage-monitor` 当前 Fork 的最新稳定 Release，并通过 GitHub Release 重定向完成，不依赖 GitHub 未认证 REST API。
 
-用户点击版本号并确认存在更高版本后，程序会下载 `codex-usage.exe` 与 `codex-usage.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。更新器在替换成功前保留回滚副本，也不会下载或执行 Release 中的 `install.ps1`。不会执行周期性后台更新检查；自动检查仅在每次软件启动后执行一次，并且只通知、不自动下载安装。
+用户点击版本号并确认存在更高版本后，程序会下载 `codex-usage-win.exe` 与 `codex-usage-win.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。更新器在替换成功前保留回滚副本，也不会下载或执行 Release 中的 `install.ps1`。不会执行周期性后台更新检查；自动检查仅在每次软件启动后执行一次，并且只通知、不自动下载安装。
 
 ## 开源说明
 
 项目采用 MIT License，保留原始 [LICENSE](LICENSE) 和版权声明。
 
-Codex Usage 源自 [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) 以及后续上游工作。当前 Fork 独立维护，与上游维护者或 OpenAI 不存在隶属或背书关系。
+Codex Usage Win 源自 [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) 以及后续上游工作。当前 Fork 独立维护，与上游维护者或 OpenAI 不存在隶属或背书关系。
 
 Fork 的安全约束和后续同步基线见 [README-FORK.md](README-FORK.md)。

@@ -36,14 +36,14 @@ Assert-Match $updater 'https://github\.com/walle-2017/codex-usage-monitor/releas
 Assert-Match $updater 'AtomicBool' 'Updater must guard concurrent operations.'
 Assert-Match $updater 'compare_exchange' 'Updater must atomically reject duplicate starts.'
 Assert-Match $updater 'std::thread::spawn' 'Network/disk work must stay off UI thread.'
-Assert-Match $updater 'codex-usage\.exe\.sha256' 'Updater must require checksum asset.'
+Assert-Match $updater 'codex-usage-win\.exe\.sha256' 'Updater must require checksum asset.'
 Assert-Match $updater '(?i)sha256' 'Updater must verify SHA256.'
 Assert-Match $updater '\.old' 'Updater helper must retain rollback backup.'
 Assert-Match $updater 'fn\s+github_status_detail\s*\(' 'HTTP failures must retain bounded diagnostics.'
 Assert-Match $updater 'redact_url_userinfo' 'HTTP diagnostics must redact URL credentials.'
 
 # Concise notification identity and severity.
-Assert-Match $cargo 'FileDescription\s*=\s*"Codex Usage"' 'Windows FileDescription must be the concise Codex Usage name.'
+Assert-Match $cargo 'FileDescription\s*=\s*"Codex Usage Win"' 'Windows FileDescription must be the Codex Usage Win name.'
 Assert-Match $tray 'NIIF_NONE' 'Routine notifications must support no-warning-icon style.'
 Assert-Match $tray 'pub\s+fn\s+notify_info\s*\(' 'Tray API must expose a non-warning info notification.'
 Assert-Match $tray 'pub\s+fn\s+notify_warning\s*\(' 'Tray API must keep a warning path for real failures.'
@@ -61,7 +61,7 @@ Assert-Match $window 'clear_notification\(hwnd\)' 'Window must clear obsolete pr
 Assert-NoMatch $window 'Duration::from_millis\(1200\)' 'Replacement must not be artificially delayed for notification visibility.'
 
 # Successful update handoff is process-local; no marker file may remain beside the EXE.
-Assert-Match $updater 'UPDATE_SUCCESS_ARG_PREFIX\s*:\s*&str\s*=\s*"--codex-usage-updated-to="' 'Updater must define an internal one-shot success argument.'
+Assert-Match $updater 'UPDATE_SUCCESS_ARG_PREFIX\s*:\s*&str\s*=\s*"--codex-usage-win-updated-to="' 'Updater must define an internal one-shot success argument.'
 Assert-Match $updater 'fn\s+successful_update_version_from_args\s*\(' 'New process must validate the internal success argument.'
 Assert-Match $updater 'fn\s+is_internal_update_arg\s*\(' 'Internal update arguments must be identifiable for filtering.'
 Assert-Match $updater 'filter\([^\r\n]*is_internal_update_arg|filter_map\(' 'Preserved relaunch args must filter updater-internal state.'

@@ -1,7 +1,7 @@
 use super::Strings;
 
 pub(super) const STRINGS: Strings = Strings {
-    window_title: "Codex Usage",
+    window_title: "Codex Usage Win",
     refresh: "Atualizar",
     update_frequency: "Frequência de Atualização",
     one_minute: "1 Minuto",
@@ -24,7 +24,7 @@ pub(super) const STRINGS: Strings = Strings {
     second_suffix: "s",
     codex_token_expired_title: "Erro de Autenticação do Codex",
     codex_token_expired_body: "Execute 'codex' em um terminal e siga as instruções de login. Depois disso, atualize ou reinicie este aplicativo.",
-    update_title: "Atualização do Codex Usage",
+    update_title: "Codex Usage Win - Atualização",
     update_checking: "Verificando atualizações...",
     update_downloading: "Atualizando para",
     update_success: "Atualizado com sucesso para",
