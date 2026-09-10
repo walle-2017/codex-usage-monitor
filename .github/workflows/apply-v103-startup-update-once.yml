@@ -23,6 +23,10 @@ jobs:
         with:
           components: clippy
 
+      - name: Patch one-shot matcher
+        shell: pwsh
+        run: python ./scripts/fix-v103-apply.py
+
       - name: Apply production and documentation changes
         shell: pwsh
         run: python ./scripts/apply-v103-startup-update.py
@@ -61,7 +65,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/apply-v103-startup-update-once.yml scripts/apply-v103-startup-update.py
+          git rm .github/workflows/apply-v103-startup-update-once.yml scripts/apply-v103-startup-update.py scripts/fix-v103-apply.py
           git add -A
           git commit -m "feat: add startup update discovery to v1.0.3"
           git push origin HEAD:feature/v103-startup-update-check
