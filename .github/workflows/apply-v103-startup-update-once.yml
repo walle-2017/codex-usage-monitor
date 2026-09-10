@@ -32,7 +32,9 @@ jobs:
         run: python ./scripts/apply-v103-startup-update.py
 
       - name: Format Rust
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
 
       - name: Verify contracts
         shell: pwsh
