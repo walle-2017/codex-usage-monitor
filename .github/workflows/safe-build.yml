@@ -6,6 +6,7 @@ on:
       - main
       - safe-no-codex-cli
       - codex-only-v1-cleanup
+      - feature/v103-startup-update-check
   pull_request:
     branches:
       - main
@@ -62,6 +63,10 @@ jobs:
       - name: Verify auto-update safety contract
         shell: pwsh
         run: ./scripts/assert-auto-update.ps1
+
+      - name: Verify startup update discovery contract
+        shell: pwsh
+        run: ./scripts/assert-startup-update-check.ps1
 
       - name: Verify persistent runtime logging contract
         shell: pwsh
