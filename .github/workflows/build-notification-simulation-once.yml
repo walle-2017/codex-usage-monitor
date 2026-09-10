@@ -1,0 +1,77 @@
+name: Build Notification Simulation Once
+
+on:
+  push:
+    branches:
+      - feature/auto-update
+    paths:
+      - '.github/workflows/build-notification-simulation-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auto-update
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Verify current notification implementation
+        shell: pwsh
+        run: |
+          ./scripts/assert-auto-update.ps1
+          ./scripts/assert-runtime-log.ps1
+          ./scripts/assert-no-codex-cli-refresh.ps1
+          cargo test
+          cargo clippy -- -D warnings
+
+      - name: Build simulated v1.0.1
+        shell: pwsh
+        run: |
+          $path = 'Cargo.toml'
+          $text = Get-Content -Raw -LiteralPath $path
+          $old = 'version = "1.0.2"'
+          $new = 'version = "1.0.1"'
+          if (($text.Split($old).Count - 1) -ne 1) { throw 'Expected exactly one package version declaration.' }
+          $text = $text.Replace($old, $new)
+          Set-Content -LiteralPath $path -Value $text -Encoding utf8NoBOM
+          cargo build --release
+          $exe = Get-Item 'target\release\codex-usage.exe'
+          if ($exe.VersionInfo.FileDescription -ne 'Codex Usage') { throw "Unexpected FileDescription: $($exe.VersionInfo.FileDescription)" }
+          if ($exe.VersionInfo.FileVersion -notlike '1.0.1*') { throw "Unexpected FileVersion: $($exe.VersionInfo.FileVersion)" }
+
+      - name: Prepare simulation artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Copy-Item 'target\release\codex-usage.exe' 'artifact\codex-usage.exe'
+          $hash = (Get-FileHash 'artifact\codex-usage.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  codex-usage.exe" | Set-Content -LiteralPath 'artifact\codex-usage.exe.sha256' -Encoding ascii
+          @'
+          This is a temporary v1.0.1 simulation build from feature/auto-update.
+          It is intended to update itself to the public v1.0.2 Release for end-to-end notification testing.
+          '@ | Set-Content -LiteralPath 'artifact\TESTING.txt' -Encoding utf8NoBOM
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-usage-notification-simulation-v1.0.1-x64
+          path: artifact/*
+          if-no-files-found: error
+
+      - name: Remove one-shot workflow from branch
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath .github/workflows/build-notification-simulation-once.yml -Force
+          git checkout -- Cargo.toml Cargo.lock
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "ci: remove notification simulation workflow"
+          git push origin HEAD:feature/auto-update
