@@ -1,0 +1,67 @@
+name: Apply v1.0.3 Startup Update Once
+
+on:
+  push:
+    branches:
+      - feature/v103-startup-update-check
+    paths:
+      - '.github/workflows/apply-v103-startup-update-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v103-startup-update-check
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Apply production and documentation changes
+        shell: pwsh
+        run: python ./scripts/apply-v103-startup-update.py
+
+      - name: Format Rust
+        run: cargo fmt --all -- --check
+
+      - name: Verify contracts
+        shell: pwsh
+        run: |
+          ./scripts/assert-no-codex-cli-refresh.ps1
+          ./scripts/assert-codex-only-runtime.ps1
+          ./scripts/assert-clean-codex-only-source.ps1
+          ./scripts/assert-v1-version.ps1
+          ./scripts/assert-final-docs.ps1
+          ./scripts/assert-drag-handler-safe.ps1
+          ./scripts/assert-live-drag-anchor.ps1
+          ./scripts/assert-compact-ui.ps1
+          ./scripts/assert-small-taskbar-ui.ps1
+          ./scripts/assert-language-independent-quota.ps1
+          ./scripts/assert-auto-update.ps1
+          ./scripts/assert-startup-update-check.ps1
+          ./scripts/assert-runtime-log.ps1
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Commit changes and remove one-shot files
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-v103-startup-update-once.yml scripts/apply-v103-startup-update.py
+          git add -A
+          git commit -m "feat: add startup update discovery to v1.0.3"
+          git push origin HEAD:feature/v103-startup-update-check
