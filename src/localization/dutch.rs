@@ -24,7 +24,7 @@ pub(super) const STRINGS: Strings = Strings {
     second_suffix: "s",
     codex_token_expired_title: "Codex-authenticatiefout",
     codex_token_expired_body: "Voer 'codex' uit in een terminal en volg de aanmeldstappen. Ververs of herstart de app daarna.",
-    update_title: "Codex Usage-update",
+    update_title: "Codex Usage Win-update",
     update_checking: "Controleren op updates...",
     update_downloading: "Bijwerken naar",
     update_success: "Bijgewerkt naar",

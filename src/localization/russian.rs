@@ -24,7 +24,7 @@ pub(super) const STRINGS: Strings = Strings {
     second_suffix: "с",
     codex_token_expired_title: "Ошибка авторизации Codex",
     codex_token_expired_body: "Запустите 'codex' в терминале и следуйте инструкциям для входа. После этого обновите или перезапустите приложение.",
-    update_title: "Обновление Codex Usage",
+    update_title: "Codex Usage Win - Обновление",
     update_checking: "Проверка обновлений...",
     update_downloading: "Обновление до",
     update_success: "Успешно обновлено до",

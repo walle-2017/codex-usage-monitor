@@ -24,7 +24,7 @@ pub(super) const STRINGS: Strings = Strings {
     second_suffix: "s",
     codex_token_expired_title: "Error de autenticacion de Codex",
     codex_token_expired_body: "Ejecuta 'codex' en una terminal y sigue las indicaciones de inicio de sesion. Despues, actualiza o reinicia esta aplicacion.",
-    update_title: "Actualización de Codex Usage",
+    update_title: "Codex Usage Win - Actualización",
     update_checking: "Buscando actualizaciones...",
     update_downloading: "Actualizando a",
     update_success: "Actualizado correctamente a",
