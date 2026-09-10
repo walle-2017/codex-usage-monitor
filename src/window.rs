@@ -792,8 +792,8 @@ fn update_language_change() -> bool {
 }
 
 const STARTUP_REGISTRY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const STARTUP_REGISTRY_KEY: &str = "CodexUsage";
-const LEGACY_STARTUP_REGISTRY_KEY: &str = "ClaudeCodeUsageMonitor";
+const STARTUP_REGISTRY_KEY: &str = "CodexUsageWin";
+const LEGACY_STARTUP_REGISTRY_KEY: &str = "CodexUsage";
 
 /// Returns true only if the startup registry value points to this executable.
 fn is_startup_enabled() -> bool {
@@ -905,7 +905,7 @@ fn migrate_legacy_startup_entry() {
 
     if read_startup_value(STARTUP_REGISTRY_KEY).is_some() {
         delete_startup_value(LEGACY_STARTUP_REGISTRY_KEY);
-        diagnose::log("migrated legacy startup registry entry to CodexUsage");
+        diagnose::log("migrated legacy startup registry entry to CodexUsageWin");
     }
 }
 
@@ -1106,7 +1106,7 @@ pub fn run() {
     // Exception: when relaunched after an explorer restart (ENV_RELAUNCH set),
     // wait for the previous instance to release the mutex, then take over.
     let is_relaunch = std::env::var(ENV_RELAUNCH).is_ok();
-    let mutex_name = native_interop::wide_str("Global\\CodexUsage");
+    let mutex_name = native_interop::wide_str("Global\\CodexUsageWin");
     let _mutex = unsafe {
         let handle = CreateMutexW(None, true, PCWSTR::from_raw(mutex_name.as_ptr()));
         match handle {
@@ -1140,7 +1140,7 @@ pub fn run() {
 
     migrate_legacy_startup_entry();
 
-    let class_name = native_interop::wide_str("CodexUsage");
+    let class_name = native_interop::wide_str("CodexUsageWin");
 
     unsafe {
         let hinstance = GetModuleHandleW(PCWSTR::null()).unwrap();

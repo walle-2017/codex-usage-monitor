@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$ExpectedVersion = '1.0.3'
+$ExpectedVersion = '1.0.4'
 
 $CargoToml = Get-Content -Raw -LiteralPath 'Cargo.toml'
 $PackageMatch = [regex]::Match(
@@ -17,13 +17,13 @@ if ($PackageMatch.Groups[1].Value -ne $ExpectedVersion) {
 $CargoLock = Get-Content -Raw -LiteralPath 'Cargo.lock'
 $LockMatch = [regex]::Match(
     $CargoLock,
-    '(?ms)^\[\[package\]\]\s*\r?\nname\s*=\s*"codex-usage"\s*\r?\nversion\s*=\s*"([^"]+)"'
+    '(?ms)^\[\[package\]\]\s*\r?\nname\s*=\s*"codex-usage-win"\s*\r?\nversion\s*=\s*"([^"]+)"'
 )
 if (-not $LockMatch.Success) {
-    throw 'Unable to locate codex-usage in Cargo.lock.'
+    throw 'Unable to locate codex-usage-win in Cargo.lock.'
 }
 if ($LockMatch.Groups[1].Value -ne $ExpectedVersion) {
-    throw "Cargo.lock codex-usage version must be $ExpectedVersion, found $($LockMatch.Groups[1].Value)."
+    throw "Cargo.lock codex-usage-win version must be $ExpectedVersion, found $($LockMatch.Groups[1].Value)."
 }
 
 $WindowSource = Get-Content -Raw -LiteralPath 'src/window.rs'

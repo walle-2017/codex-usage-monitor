@@ -7,12 +7,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexUsage'
+$InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexUsageWin'
 $ExpectedInstallDirectory = [IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\')
-$TargetPath = Join-Path $ExpectedInstallDirectory 'codex-usage.exe'
-$ShortcutPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Codex Usage.lnk'
-$DesktopShortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Codex Usage.lnk'
-$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsage'
+$TargetPath = Join-Path $ExpectedInstallDirectory 'codex-usage-win.exe'
+$ShortcutPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Codex Usage Win.lnk'
+$DesktopShortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Codex Usage Win.lnk'
+$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsageWin'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $SettingsDirectory = Join-Path $env:APPDATA 'CodexUsage'
 
@@ -21,11 +21,12 @@ if (-not $ExpectedInstallDirectory.StartsWith($AllowedRoot + '\', [StringCompari
     throw "Refusing to remove unexpected install directory: $ExpectedInstallDirectory"
 }
 
-Get-CimInstance Win32_Process -Filter "Name='codex-usage.exe'" -ErrorAction SilentlyContinue |
+Get-CimInstance Win32_Process -Filter "Name='codex-usage-win.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.ExecutablePath -eq $TargetPath } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
 if (Test-Path -LiteralPath $RunKey) {
+    Remove-ItemProperty -Path $RunKey -Name 'CodexUsageWin' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $RunKey -Name 'CodexUsage' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $RunKey -Name 'ClaudeCodeUsageMonitor' -ErrorAction SilentlyContinue
 }
@@ -47,7 +48,7 @@ if (Test-Path -LiteralPath $ExpectedInstallDirectory -PathType Container) {
 }
 
 if (-not $Quiet) {
-    Write-Output 'Codex Usage was uninstalled.'
+    Write-Output 'Codex Usage Win was uninstalled.'
     if (-not $RemoveSettings) {
         Write-Output "Settings were preserved at $SettingsDirectory"
     }

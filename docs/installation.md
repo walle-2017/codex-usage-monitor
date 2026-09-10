@@ -1,14 +1,14 @@
-# Codex Usage installation model
+# Codex Usage Win installation model
 
-Codex Usage is a single native Windows executable. Installation places the executable and uninstall helper in a stable per-user directory; it does not add a runtime, service, driver, telemetry component, or machine-wide dependency.
+Codex Usage Win is a single native Windows executable. Installation places the executable and uninstall helper in a stable per-user directory; it does not add a runtime, service, driver, telemetry component, or machine-wide dependency.
 
 ## Direct installation
 
 - Install directory: `%LOCALAPPDATA%\Programs\CodexUsage`
-- Executable: `%LOCALAPPDATA%\Programs\CodexUsage\codex-usage.exe`
+- Executable: `%LOCALAPPDATA%\Programs\CodexUsage\codex-usage-win.exe`
 - Uninstall helper: `%LOCALAPPDATA%\Programs\CodexUsage\uninstall.ps1`
-- Start menu shortcut: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Codex Usage.lnk`
-- Desktop shortcut: `Codex Usage.lnk`
+- Start menu shortcut: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Codex Usage Win.lnk`
+- Desktop shortcut: `Codex Usage Win.lnk`
 - Add/Remove Programs key: `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsage`
 
 The installer is per-user and does not request elevation. It verifies the release SHA256 before replacing an existing executable. Replacement uses a staged `.new` file and preserves the previous executable as `.old` until the new installation has completed successfully.
@@ -19,17 +19,17 @@ Online installation downloads release assets only from the fork repository:
 walle-2017/codex-usage-monitor
 ```
 
-The installer expects `codex-usage.exe`, `codex-usage.exe.sha256`, and `uninstall.ps1` from the same Release.
+The installer expects `codex-usage-win.exe`, `codex-usage-win.exe.sha256`, and `uninstall.ps1` from the same Release.
 
 ## Portable mode
 
-`codex-usage.exe` can be run directly from any user-writable directory. Portable and installed copies use the same settings file:
+`codex-usage-win.exe` can be run directly from any user-writable directory. Portable and installed copies use the same settings file:
 
 ```text
 %APPDATA%\CodexUsage\settings.json
 ```
 
-Both installed and portable copies perform one check-only lookup of the latest stable Release from `walle-2017/codex-usage-monitor` after startup. If a higher version exists, Codex Usage notifies the user and the **Settings** version row displays `vCURRENT --> vLATEST`. No file is downloaded by the startup check. Clicking the version row starts the manual updater, which downloads `codex-usage.exe` plus `codex-usage.exe.sha256`, verifies SHA256, stages the replacement beside the running executable, and restarts automatically.
+Both installed and portable copies perform one check-only lookup of the latest stable Release from `walle-2017/codex-usage-monitor` after startup. If a higher version exists, Codex Usage Win notifies the user and the **Settings** version row displays `vCURRENT --> vLATEST`. No file is downloaded by the startup check. Clicking the version row starts the manual updater, which downloads `codex-usage-win.exe` plus `codex-usage-win.exe.sha256`, verifies SHA256, stages the replacement beside the running executable, and restarts automatically.
 
 The updater does not request UAC elevation. If the executable directory is not writable, the running version is left unchanged. It never downloads or executes the Release `install.ps1` as part of an in-app update.
 
@@ -47,7 +47,7 @@ Current settings include taskbar position/screen, polling frequency, language, a
 
 ## Release integrity
 
-The release executable is accompanied by `codex-usage.exe.sha256`. The PowerShell installer and in-app updater both verify the staged executable against the Release checksum before replacement.
+The release executable is accompanied by `codex-usage-win.exe.sha256`. The PowerShell installer and in-app updater both verify the staged executable against the Release checksum before replacement.
 
 The executable's Windows FileVersion/ProductVersion and the application's version menu are derived from the Cargo package version.
 

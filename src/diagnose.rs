@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const LOG_FILE_NAME: &str = "codex-usage.log";
+const LOG_FILE_NAME: &str = "codex-usage-win.log";
 const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 
 struct LogWriter {
@@ -46,7 +46,7 @@ fn open_log(path: &Path) -> Result<File, String> {
 }
 
 fn backup_path(path: &Path) -> PathBuf {
-    path.with_file_name("codex-usage.log.1")
+    path.with_file_name("codex-usage-win.log.1")
 }
 
 fn rotate_if_oversized(path: &Path) -> Result<(), String> {
@@ -117,8 +117,8 @@ mod tests {
     #[test]
     fn backup_name_is_single_generation() {
         assert_eq!(
-            backup_path(Path::new(r"C:\Tools\codex-usage.log")),
-            PathBuf::from(r"C:\Tools\codex-usage.log.1")
+            backup_path(Path::new(r"C:\Tools\codex-usage-win.log")),
+            PathBuf::from(r"C:\Tools\codex-usage-win.log.1")
         );
     }
 

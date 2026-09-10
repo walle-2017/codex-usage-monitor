@@ -12,20 +12,20 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Repository = 'walle-2017/codex-usage-monitor'
-$InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexUsage'
-$TargetPath = Join-Path $InstallDirectory 'codex-usage.exe'
+$InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexUsageWin'
+$TargetPath = Join-Path $InstallDirectory 'codex-usage-win.exe'
 $InstalledUninstaller = Join-Path $InstallDirectory 'uninstall.ps1'
-$ShortcutPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Codex Usage.lnk'
-$DesktopShortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Codex Usage.lnk'
-$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsage'
+$ShortcutPath = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Codex Usage Win.lnk'
+$DesktopShortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Codex Usage Win.lnk'
+$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsageWin'
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$TempDirectory = Join-Path ([IO.Path]::GetTempPath()) ('codex-usage-install-' + [Guid]::NewGuid().ToString('N'))
+$TempDirectory = Join-Path ([IO.Path]::GetTempPath()) ('codex-usage-win-install-' + [Guid]::NewGuid().ToString('N'))
 
 $StartupWasEnabled = $false
 $ExistingStartup = $null
 if (Test-Path -LiteralPath $RunKey) {
     $ExistingStartup = try {
-        Get-ItemPropertyValue -Path $RunKey -Name 'CodexUsage' -ErrorAction Stop
+        Get-ItemPropertyValue -Path $RunKey -Name 'CodexUsageWin' -ErrorAction Stop
     }
     catch {
         $null
@@ -52,13 +52,13 @@ function Invoke-ReleaseDownload {
         [Parameter(Mandatory = $true)][string]$Destination
     )
 
-    Invoke-WebRequest -UseBasicParsing -Headers @{ 'User-Agent' = 'CodexUsage-Installer' } -Uri $Url -OutFile $Destination
+    Invoke-WebRequest -UseBasicParsing -Headers @{ 'User-Agent' = 'CodexUsageWin-Installer' } -Uri $Url -OutFile $Destination
 }
 
 New-Item -ItemType Directory -Force -Path $TempDirectory | Out-Null
 
 try {
-    $StagedExecutable = Join-Path $TempDirectory 'codex-usage.exe'
+    $StagedExecutable = Join-Path $TempDirectory 'codex-usage-win.exe'
     $StagedUninstaller = Join-Path $TempDirectory 'uninstall.ps1'
 
     if ($SourcePath) {
@@ -79,11 +79,11 @@ try {
             "https://api.github.com/repos/$Repository/releases/latest"
         }
 
-        $Release = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'CodexUsage-Installer' } -Uri $ApiUrl
-        $ExecutableUrl = Get-ReleaseAsset -Release $Release -Name 'codex-usage.exe'
-        $ChecksumUrl = Get-ReleaseAsset -Release $Release -Name 'codex-usage.exe.sha256'
+        $Release = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'CodexUsageWin-Installer' } -Uri $ApiUrl
+        $ExecutableUrl = Get-ReleaseAsset -Release $Release -Name 'codex-usage-win.exe'
+        $ChecksumUrl = Get-ReleaseAsset -Release $Release -Name 'codex-usage-win.exe.sha256'
         $UninstallerUrl = Get-ReleaseAsset -Release $Release -Name 'uninstall.ps1'
-        $ChecksumPath = Join-Path $TempDirectory 'codex-usage.exe.sha256'
+        $ChecksumPath = Join-Path $TempDirectory 'codex-usage-win.exe.sha256'
 
         Invoke-ReleaseDownload -Url $ExecutableUrl -Destination $StagedExecutable
         Invoke-ReleaseDownload -Url $ChecksumUrl -Destination $ChecksumPath
@@ -103,7 +103,7 @@ try {
 
     New-Item -ItemType Directory -Force -Path $InstallDirectory | Out-Null
 
-    Get-CimInstance Win32_Process -Filter "Name='codex-usage.exe'" -ErrorAction SilentlyContinue |
+    Get-CimInstance Win32_Process -Filter "Name='codex-usage-win.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.ExecutablePath -eq $TargetPath } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 
@@ -138,7 +138,7 @@ try {
 
         New-Item -Path $UninstallKey -Force | Out-Null
         $UninstallCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$InstalledUninstaller`""
-        Set-ItemProperty -Path $UninstallKey -Name DisplayName -Value 'Codex Usage'
+        Set-ItemProperty -Path $UninstallKey -Name DisplayName -Value 'Codex Usage Win'
         Set-ItemProperty -Path $UninstallKey -Name DisplayVersion -Value $InstalledVersion
         Set-ItemProperty -Path $UninstallKey -Name Publisher -Value 'Ray'
         Set-ItemProperty -Path $UninstallKey -Name DisplayIcon -Value $TargetPath
@@ -150,7 +150,7 @@ try {
         Set-ItemProperty -Path $UninstallKey -Name NoRepair -Type DWord -Value 1
 
         if ($StartupWasEnabled) {
-            Set-ItemProperty -Path $RunKey -Name 'CodexUsage' -Value $TargetPath
+            Set-ItemProperty -Path $RunKey -Name 'CodexUsageWin' -Value $TargetPath
         }
 
         $Shell = New-Object -ComObject WScript.Shell
@@ -161,7 +161,7 @@ try {
             $Shortcut.TargetPath = $TargetPath
             $Shortcut.WorkingDirectory = $InstallDirectory
             $Shortcut.IconLocation = "$TargetPath,0"
-            $Shortcut.Description = 'Codex Usage'
+            $Shortcut.Description = 'Codex Usage Win'
             $Shortcut.Save()
         }
 
@@ -178,7 +178,7 @@ try {
             Move-Item -LiteralPath $BackupPath -Destination $TargetPath -Force
         }
         if ($StartupWasEnabled -and $ExistingStartup) {
-            Set-ItemProperty -Path $RunKey -Name 'CodexUsage' -Value $ExistingStartup
+            Set-ItemProperty -Path $RunKey -Name 'CodexUsageWin' -Value $ExistingStartup
         }
         throw
     }
@@ -189,7 +189,7 @@ try {
         Start-Process -FilePath $TargetPath -WorkingDirectory $InstallDirectory -WindowStyle Hidden
     }
 
-    Write-Output "Codex Usage $InstalledVersion installed to $InstallDirectory"
+    Write-Output "Codex Usage Win $InstalledVersion installed to $InstallDirectory"
     Write-Output "SHA256: $ActualSha256"
 }
 finally {

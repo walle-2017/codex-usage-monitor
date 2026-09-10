@@ -19,13 +19,14 @@ const RELEASE_TAG_PREFIX: &str = "https://github.com/walle-2017/codex-usage-moni
 const RELEASE_TAG_RELATIVE_PREFIX: &str = "/walle-2017/codex-usage-monitor/releases/tag/v";
 const RELEASE_ASSET_PREFIX: &str =
     "https://github.com/walle-2017/codex-usage-monitor/releases/download/";
-const EXE_ASSET_NAME: &str = "codex-usage.exe";
-const CHECKSUM_ASSET_NAME: &str = "codex-usage.exe.sha256";
+const EXE_ASSET_NAME: &str = "codex-usage-win.exe";
+const CHECKSUM_ASSET_NAME: &str = "codex-usage-win.exe.sha256";
 const UPDATE_TIMEOUT_SECS: u64 = 30;
 const HELPER_WAIT_SECS: u64 = 60;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const UPDATE_CHECK_NOTIFY_DELAY_MS: u64 = 800;
-const UPDATE_SUCCESS_ARG_PREFIX: &str = "--codex-usage-updated-to=";
+const UPDATE_SUCCESS_ARG_PREFIX: &str = "--codex-usage-win-updated-to=";
+const LEGACY_UPDATE_SUCCESS_ARG_PREFIX: &str = "--codex-usage-updated-to=";
 const UPDATE_STAGE_IDLE: u8 = 0;
 const UPDATE_STAGE_CHECKING: u8 = 1;
 const UPDATE_STAGE_UPDATING: u8 = 2;
@@ -460,7 +461,7 @@ fn request_builder<'a>(agent: &'a ureq::Agent, url: &'a str) -> ureq::Request {
         .get(url)
         .set(
             "User-Agent",
-            &format!("CodexUsage-Updater/{}", env!("CARGO_PKG_VERSION")),
+            &format!("CodexUsageWin-Updater/{}", env!("CARGO_PKG_VERSION")),
         )
         .set("Accept", "*/*")
 }
@@ -677,7 +678,7 @@ fn unique_staging_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    std::env::temp_dir().join(format!("codex-usage-update-{}-{nonce}", std::process::id()))
+    std::env::temp_dir().join(format!("codex-usage-win-update-{}-{nonce}", std::process::id()))
 }
 
 fn preflight_writable(directory: &Path) -> Result<(), UpdateError> {
@@ -689,7 +690,7 @@ fn preflight_writable(directory: &Path) -> Result<(), UpdateError> {
         .unwrap_or_default()
         .as_nanos();
     let probe = directory.join(format!(
-        ".codex-usage-update-probe-{}-{nonce}",
+        ".codex-usage-win-update-probe-{}-{nonce}",
         std::process::id()
     ));
     let result = OpenOptions::new()
@@ -715,6 +716,7 @@ fn sibling_path(target: &Path, suffix: &str) -> PathBuf {
 
 pub(crate) fn is_internal_update_arg(arg: &str) -> bool {
     arg.starts_with(UPDATE_SUCCESS_ARG_PREFIX)
+        || arg.starts_with(LEGACY_UPDATE_SUCCESS_ARG_PREFIX)
 }
 
 fn successful_update_version_from_iter<I>(args: I, current_version: &str) -> Option<String>
@@ -722,11 +724,13 @@ where
     I: IntoIterator<Item = String>,
 {
     args.into_iter().find_map(|arg| {
-        let version = arg.strip_prefix(UPDATE_SUCCESS_ARG_PREFIX)?;
+        let version = arg
+  .strip_prefix(UPDATE_SUCCESS_ARG_PREFIX)
+  .or_else(|| arg.strip_prefix(LEGACY_UPDATE_SUCCESS_ARG_PREFIX))?;
         if Version::parse(version).is_some() && version == current_version {
-            Some(version.to_string())
+  Some(version.to_string())
         } else {
-            None
+  None
         }
     })
 }
@@ -784,7 +788,7 @@ $Version = {version}
 $WorkingDirectory = {working_dir}
 $RelaunchArgs = {args}
 $LaunchArgs = @($RelaunchArgs) + @($SuccessArg)
-$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsage'
+$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexUsageWin'
 $Deadline = (Get-Date).AddSeconds({helper_wait})
 
 while (Get-Process -Id $OldProcessId -ErrorAction SilentlyContinue) {{
@@ -820,7 +824,7 @@ try {{
                 }}
             }}
             if (-not $MatchesTarget -and $Meta.InstallLocation) {{
-                $InstalledPath = Join-Path ([string]$Meta.InstallLocation) 'codex-usage.exe'
+                $InstalledPath = Join-Path ([string]$Meta.InstallLocation) 'codex-usage-win.exe'
                 $MatchesTarget = ([IO.Path]::GetFullPath($InstalledPath) -eq $TargetFull)
             }}
             if ($MatchesTarget) {{
@@ -920,14 +924,14 @@ mod tests {
     fn success_argument_is_accepted_only_for_current_version() {
         assert_eq!(
             successful_update_version_from_iter(
-                vec!["--codex-usage-updated-to=1.2.3".to_string()],
+                vec!["--codex-usage-win-updated-to=1.2.3".to_string()],
                 "1.2.3"
             ),
             Some("1.2.3".to_string())
         );
         assert_eq!(
             successful_update_version_from_iter(
-                vec!["--codex-usage-updated-to=9.9.9".to_string()],
+                vec!["--codex-usage-win-updated-to=9.9.9".to_string()],
                 "1.2.3"
             ),
             None
@@ -936,6 +940,7 @@ mod tests {
 
     #[test]
     fn internal_success_argument_is_identified_for_filtering() {
+        assert!(is_internal_update_arg("--codex-usage-win-updated-to=1.2.3"));
         assert!(is_internal_update_arg("--codex-usage-updated-to=1.2.3"));
         assert!(!is_internal_update_arg("--diagnose"));
     }
@@ -989,11 +994,11 @@ mod tests {
         assert_eq!(update.version, "1.0.3");
         assert_eq!(
             update.executable_url,
-            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe"
+            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage-win.exe"
         );
         assert_eq!(
             update.checksum_url,
-            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe.sha256"
+            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage-win.exe.sha256"
         );
     }
 
@@ -1029,7 +1034,7 @@ mod tests {
     #[test]
     fn checksum_parser_accepts_standard_release_line() {
         let hash = parse_sha256(
-            "33a2e08a6d7bc3f42bdf1de2a9a1c6cd82ff6d891a80e274e6951335d5eda428  codex-usage.exe",
+            "33a2e08a6d7bc3f42bdf1de2a9a1c6cd82ff6d891a80e274e6951335d5eda428  codex-usage-win.exe",
         )
         .unwrap();
         assert_eq!(
@@ -1075,8 +1080,8 @@ mod tests {
         let package = UpdatePackage {
             version: "1.0.3".to_string(),
             staging_dir: PathBuf::from(r"C:\Temp\codex-update"),
-            target: PathBuf::from(r"C:\Tools\codex-usage.exe"),
-            prepared_new: PathBuf::from(r"C:\Tools\codex-usage.exe.new"),
+            target: PathBuf::from(r"C:\Tools\codex-usage-win.exe"),
+            prepared_new: PathBuf::from(r"C:\Tools\codex-usage-win.exe.new"),
             working_dir: PathBuf::from(r"C:\Tools"),
             relaunch_args: vec!["--diagnose".to_string()],
         };

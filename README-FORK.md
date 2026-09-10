@@ -21,13 +21,13 @@ Tag：v1.0.3
 - **设置**中的版本号保持可点击；发现更高版本后显示 `v当前版本 --> v最新版本`，点击后进入现有手动更新流程。不会执行周期性后台更新检查。
 - 最新版本只从当前 Fork `walle-2017/codex-usage-monitor` 的稳定 Release 获取。
 - 最新版本发现通过 `https://github.com/walle-2017/codex-usage-monitor/releases/latest` 重定向解析稳定 `vX.Y.Z`，不依赖 GitHub 未认证 REST `releases/latest` API。
-- 只下载当前 Fork Release 中的 `codex-usage.exe` 与 `codex-usage.exe.sha256`，SHA256 一致后才进入替换流程。
+- 只下载当前 Fork Release 中的 `codex-usage-win.exe` 与 `codex-usage-win.exe.sha256`，SHA256 一致后才进入替换流程。
 - 更新目标固定为 `std::env::current_exe()`，同时支持安装版和位于可写目录中的便携版。
 - 使用本地生成的一次性 PowerShell helper 等待旧进程退出，执行 `.new` / `.old` 替换和失败回滚，然后重启新版本；不会下载或执行 Release 中的 `install.ps1`。
-- 更新成功通过一次性内部参数 `--codex-usage-updated-to=X.Y.Z` 交给新进程显示成功通知，不在程序目录创建持久 success marker 文件。
+- 更新成功通过一次性内部参数 `--codex-usage-win-updated-to=X.Y.Z` 交给新进程显示成功通知，不在程序目录创建持久 success marker 文件。
 - 普通更新状态和额度提醒使用简洁无警告大图标的 Windows 通知；真正的更新失败仍保留警告样式和具体错误信息。
 - 同一轮轮询触发多个额度窗口提醒时合并为一条通知，并继续按额度重置窗口去重。
-- 仅使用 `--diagnose` 启动时才在 EXE 同目录创建或追加 `codex-usage.log`；达到 5 MB 后轮转为 `codex-usage.log.1`，只保留一份历史日志。普通启动不写诊断日志。
+- 仅使用 `--diagnose` 启动时才在 EXE 同目录创建或追加 `codex-usage-win.log`；达到 5 MB 后轮转为 `codex-usage-win.log.1`，只保留一份历史日志。普通启动不写诊断日志。
 - 日志保留更新、网络、轮询和任务栏恢复关键事件，但不记录 access token、refresh token、`auth.json` 内容或代理密码。
 
 `Cargo.toml` 是产品版本的权威来源；`Cargo.lock` 根包版本、程序右键菜单中的版本号，以及 Windows EXE 的 FileVersion/ProductVersion 均与该版本保持一致。
@@ -171,7 +171,7 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         ↓
 固定 Fork Release 下载地址
         ↓
-codex-usage.exe + codex-usage.exe.sha256
+codex-usage-win.exe + codex-usage-win.exe.sha256
         ↓
 SHA256 校验
         ↓
@@ -193,8 +193,8 @@ walle-2017/codex-usage-monitor
 正式 Release 至少提供：
 
 ```text
-codex-usage.exe
-codex-usage.exe.sha256
+codex-usage-win.exe
+codex-usage-win.exe.sha256
 install.ps1
 uninstall.ps1
 ```
@@ -251,4 +251,4 @@ cargo build --release
 
 本项目继续遵守 MIT License，并保留原始 [LICENSE](LICENSE) 与版权信息。
 
-Codex Usage 源自 [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) 及其后续衍生工作。当前 Fork 的改动由本仓库独立维护，与原作者、上游维护者或 OpenAI 不存在隶属或背书关系。
+Codex Usage Win 源自 [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) 及其后续衍生工作。当前 Fork 的改动由本仓库独立维护，与原作者、上游维护者或 OpenAI 不存在隶属或背书关系。

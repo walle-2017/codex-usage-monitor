@@ -3,9 +3,9 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-# Codex Usage
+# Codex Usage Win
 
-<img src=".github/codex-usage-icon.png" alt="Codex Usage icon" width="96" height="96">
+<img src=".github/codex-usage-icon.png" alt="Codex Usage Win icon" width="96" height="96">
 
 ![Screenshot](.github/animation.gif)
 
@@ -33,7 +33,7 @@ This fork deliberately removes automatic Codex CLI token refresh from the monito
 
 The app reads Codex credentials from `$CODEX_HOME/auth.json` or `~/.codex/auth.json` and calls the Codex usage endpoint over HTTPS. If the endpoint returns `401` or `403`, the monitor reports an authentication error and pauses polling until the credential source changes. It **does not launch `codex.exe`, `codex.cmd`, `codex.ps1`, or `codex exec`** to refresh credentials.
 
-To recover from an expired login, sign in through the official Codex CLI/app yourself, then refresh or restart Codex Usage.
+To recover from an expired login, sign in through the official Codex CLI/app yourself, then refresh or restart Codex Usage Win.
 
 ## Requirements
 
@@ -50,17 +50,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 
 The installer verifies the release SHA256, installs without administrator access to `%LOCALAPPDATA%\Programs\CodexUsage`, creates Start-menu and desktop shortcuts, and registers an uninstall entry in Windows Installed Apps.
 
-For portable use, download `codex-usage.exe` from the same release and run it from a user-writable directory. To build locally:
+For portable use, download `codex-usage-win.exe` from the same release and run it from a user-writable directory. To build locally:
 
 ```powershell
 cargo build --release
 ```
 
-The executable is created at `target\release\codex-usage.exe`.
+The executable is created at `target\release\codex-usage-win.exe`.
 
 ## Uninstall
 
-Uninstall **Codex Usage** from Windows Settings > Apps > Installed apps, or run:
+Uninstall **Codex Usage Win** from Windows Settings > Apps > Installed apps, or run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexUsage\uninstall.ps1"
@@ -70,7 +70,7 @@ Normal uninstall preserves `%APPDATA%\CodexUsage\settings.json`. Add `-RemoveSet
 
 ## Use
 
-Run `codex-usage.exe` or the installed shortcut. The widget embeds into the selected Windows taskbar and the notification area keeps one tray icon available for commands.
+Run `codex-usage-win.exe` or the installed shortcut. The widget embeds into the selected Windows taskbar and the notification area keeps one tray icon available for commands.
 
 - Drag the left handle to reposition the widget.
 - On multi-monitor systems, keep holding the mouse button and drag onto another taskbar; the widget reattaches immediately, keeps the pointer aligned to the same logical point on the drag handle, and continues following the cursor across different DPI settings.
@@ -106,7 +106,7 @@ Because the Codex request includes an OAuth Bearer token inside TLS, only use pr
 
 ## Diagnostics
 
-Runtime logging is opt-in. Start Codex Usage with `--diagnose` to create `codex-usage.log` beside the running executable. The log is retained across diagnostic restarts and rotates at 5 MB to `codex-usage.log.1`, keeping only the current and previous log. Normal startup does not create or append the diagnostic log.
+Runtime logging is opt-in. Start Codex Usage Win with `--diagnose` to create `codex-usage-win.log` beside the running executable. The log is retained across diagnostic restarts and rotates at 5 MB to `codex-usage-win.log.1`, keeping only the current and previous log. Normal startup does not create or append the diagnostic log.
 
 The log records key application, polling, proxy, taskbar-recovery, and in-app-update events. It does not record access tokens, refresh tokens, credential-file contents, or proxy passwords. See [Troubleshooting](docs/troubleshooting.md).
 
@@ -128,14 +128,14 @@ The monitor does not directly edit `auth.json` and does not start Codex CLI proc
 
 The current release is **1.0.3**. The in-app menu displays `v1.0.3` from the package version, and Windows executable metadata is generated from the same source. The initial cleaned Codex-only safety baseline was `v1.0.0`.
 
-Codex Usage performs one check-only Release lookup after startup. If a higher stable version exists, it shows a concise notification and the **Settings** version row becomes `vCURRENT --> vLATEST`. The startup check never downloads or installs an update. Clicking the version row performs the existing manual update flow. All discovery is limited to the latest stable Release of `walle-2017/codex-usage-monitor` and uses the fork's GitHub Release redirect rather than the unauthenticated GitHub REST API.
+Codex Usage Win performs one check-only Release lookup after startup. If a higher stable version exists, it shows a concise notification and the **Settings** version row becomes `vCURRENT --> vLATEST`. The startup check never downloads or installs an update. Clicking the version row performs the existing manual update flow. All discovery is limited to the latest stable Release of `walle-2017/codex-usage-monitor` and uses the fork's GitHub Release redirect rather than the unauthenticated GitHub REST API.
 
-When the user clicks the version row and a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. The updater keeps a rollback copy until replacement succeeds and never downloads or executes a Release `install.ps1`. There is no periodic background update check; the automatic check runs once per application startup and is notification-only.
+When the user clicks the version row and a newer version exists, Codex Usage Win downloads `codex-usage-win.exe` and `codex-usage-win.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. The updater keeps a rollback copy until replacement succeeds and never downloads or executes a Release `install.ps1`. There is no periodic background update check; the automatic check runs once per application startup and is notification-only.
 
 ## Open source
 
 This project is licensed under the MIT License. The original [LICENSE](LICENSE) and copyright notice are preserved.
 
-Codex Usage is derived from [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) and later upstream work. The current fork is maintained independently and is not affiliated with or endorsed by upstream maintainers or OpenAI.
+Codex Usage Win is derived from [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) and later upstream work. The current fork is maintained independently and is not affiliated with or endorsed by upstream maintainers or OpenAI.
 
 See [README-FORK.md](README-FORK.md) for the fork-specific safety and maintenance baseline.
