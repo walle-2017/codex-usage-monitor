@@ -29,13 +29,13 @@ foreach ($forbidden in @('IDM_MODEL_CLAUDE_CODE', 'IDM_MODEL_CODEX', 'IDM_MODEL_
     }
 }
 
-# Stage 1 removes all reachable update entry points. The orphaned updater module
-# and helper implementations are deleted in the dedicated dead-code stage.
+# Keep the removed pre-v1 updater framework unreachable. The supported updater
+# uses IDM_CHECK_UPDATE + src/updater.rs and must not revive these old paths.
 if ($main -match 'updater::handle_cli_mode' -or
     $window -match 'IDM_VERSION_ACTION' -or
     $window -match 'TIMER_UPDATE_CHECK\s*=>' -or
     $window -match 'begin_update_check\(hwnd,\s*(true|false)\)') {
-    throw 'In-app update entry points must be unreachable.'
+    throw 'Legacy updater entry points must remain removed.'
 }
 
 foreach ($forbidden in @('IDM_TOGGLE_WIDGET', 'ToggleWidget', 'toggle_widget_visibility')) {
@@ -52,4 +52,4 @@ if ($window -notmatch 'ShowWindow\(hwnd,\s*SW_SHOWNOACTIVATE\)') {
     throw 'Taskbar widget must be shown unconditionally while the process is running.'
 }
 
-Write-Host 'PASS: runtime is Codex-only, has no reachable in-app updater, and taskbar widget is always visible.'
+Write-Host 'PASS: runtime is Codex-only, legacy updater paths stay removed, secure manual updates are allowed, and taskbar widget is always visible.'

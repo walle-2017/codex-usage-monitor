@@ -188,6 +188,16 @@ pub struct Strings {
     pub second_suffix: &'static str,
     pub codex_token_expired_title: &'static str,
     pub codex_token_expired_body: &'static str,
+    pub update_title: &'static str,
+    pub update_checking: &'static str,
+    pub update_downloading: &'static str,
+    pub update_success: &'static str,
+    pub update_current: &'static str,
+    pub update_check_failed: &'static str,
+    pub update_download_failed: &'static str,
+    pub update_checksum_failed: &'static str,
+    pub update_target_not_writable: &'static str,
+    pub update_helper_failed: &'static str,
 }
 
 pub fn resolve_language(language_override: Option<LanguageId>) -> LanguageId {

@@ -10,7 +10,7 @@ Codex Usage separates authentication failures from transient service failures:
 | `网络` | `NET` | Network or TLS connection failed | Check connectivity, VPN, proxy, and firewall settings |
 | `限流` | `429` | Codex usage endpoint rate limit | Wait for the retry window; Codex Usage retries with backoff |
 | `服务` | `5XX` | Service failure | Wait and retry; check service status if the problem persists |
-| `错误` | `ERR` | Invalid or unsupported response | Enable diagnostics and inspect the log |
+| `错误` | `ERR` | Invalid or unsupported response | Inspect the runtime log next to the executable |
 
 When the usage endpoint returns `401` or `403`, authentication polling is paused until the local Codex credential source changes. The monitor does not launch Codex CLI processes to refresh credentials.
 
@@ -27,22 +27,23 @@ If the taskbar shows `!`:
 
 The monitor reads `$CODEX_HOME/auth.json` or `~/.codex/auth.json` but does not directly edit it.
 
-## Diagnostic log
+## Runtime log
 
-Run:
+Runtime logging is enabled automatically. `codex-usage.log` is created in the same directory as the running `codex-usage.exe`; no `--diagnose` argument is required.
 
-```powershell
-codex-usage.exe --diagnose
-```
-
-The log is written to `%TEMP%\codex-usage.log`. It can include:
+The log is append-only across normal restarts and records key events such as:
 
 - application version and executable path
-- polling failure category and retry delay
+- polling success/failure category and retry behavior
 - taskbar placement and Explorer-recovery events
 - whether Windows manual system proxy support was selected
+- in-app update checks, GitHub/HTTP/network/TLS failures, selected Release version, download/checksum status, and updater launch status
 
-The log does not include access tokens, refresh tokens, credential-file contents, or API response bodies.
+When `codex-usage.log` reaches 5 MB, it is rotated to `codex-usage.log.1`. Only the current file and one previous file are retained.
+
+The log does not include access tokens, refresh tokens, credential-file contents, API response bodies, or proxy passwords.
+
+If the executable directory is read-only, failure to create the log does not prevent the application from starting.
 
 ## Network and proxy failures
 
@@ -88,10 +89,14 @@ The application keeps a watchdog for Explorer/taskbar replacement. If Explorer r
 
 If the widget does not return after Explorer has stabilized, exit any remaining `codex-usage.exe` process and start the application again.
 
-## Upgrade problems
+## In-app update
 
-Codex Usage has no background update checker or in-app updater. Upgrades are explicit.
+Click the version item under **Settings** to check the latest stable Release from `walle-2017/codex-usage-monitor`. When a newer version is available, the application downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, replaces the installed or portable executable safely, and restarts without an extra confirmation prompt.
 
-For an installed copy, download/run `install.ps1` from the fork Release you intend to install. The installer verifies the executable SHA256 before replacement and restores the previous executable if replacement fails.
+There is no startup or periodic background update check.
 
-For a portable copy, verify the published SHA256 and replace `codex-usage.exe` manually while the old process is not running.
+## In-app update fails
+
+The running version is left unchanged when the Release check, download, SHA256 verification, target-directory write preflight, or updater launch fails. The notification includes a concise technical reason; the full diagnostic sequence is written to `codex-usage.log` beside the executable.
+
+Ensure GitHub is reachable through the same proxy environment used by Codex Usage and that the directory containing the running executable is writable. The updater does not request UAC elevation.

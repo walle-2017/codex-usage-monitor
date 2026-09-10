@@ -67,6 +67,7 @@ struct CodexRateLimitWindow {
 
 pub fn poll() -> Result<AppUsageData, PollError> {
     let codex = poll_codex()?;
+    diagnose::log("Codex usage poll succeeded");
     Ok(AppUsageData { codex: Some(codex) })
 }
 

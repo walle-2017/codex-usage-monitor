@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$ExpectedVersion = '1.0.2'
+$ExpectedVersion = '1.0.3'
 
 $CargoToml = Get-Content -Raw -LiteralPath 'Cargo.toml'
 $PackageMatch = [regex]::Match(
@@ -28,10 +28,10 @@ if ($LockMatch.Groups[1].Value -ne $ExpectedVersion) {
 
 $WindowSource = Get-Content -Raw -LiteralPath 'src/window.rs'
 if ($WindowSource -notmatch 'env!\("CARGO_PKG_VERSION"\)') {
-    throw 'The read-only version menu must derive its value from CARGO_PKG_VERSION.'
+    throw 'The version menu must derive its value from CARGO_PKG_VERSION.'
 }
 if ($WindowSource -notmatch 'format!\("v\{\}"\s*,\s*env!\("CARGO_PKG_VERSION"\)\)') {
-    throw 'The read-only version menu must render the package version with a v prefix.'
+    throw 'The version menu must render the package version with a v prefix.'
 }
 
 $BuildSource = Get-Content -Raw -LiteralPath 'build.rs'

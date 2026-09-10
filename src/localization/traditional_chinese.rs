@@ -25,4 +25,14 @@ pub(super) const STRINGS: Strings = Strings {
     codex_token_expired_title: "Codex 驗證錯誤",
     codex_token_expired_body:
         "請在終端機中執行 'codex'，並依照登入提示操作。完成後，請重新整理或重新啟動此應用程式。",
+    update_title: "Codex Usage 更新",
+    update_checking: "正在檢查更新…",
+    update_downloading: "正在更新至",
+    update_success: "已成功更新到",
+    update_current: "目前已是最新版本",
+    update_check_failed: "檢查更新失敗",
+    update_download_failed: "下載更新失敗",
+    update_checksum_failed: "更新檔案驗證失敗",
+    update_target_not_writable: "目前程式目錄無法寫入",
+    update_helper_failed: "啟動更新程式失敗",
 };
