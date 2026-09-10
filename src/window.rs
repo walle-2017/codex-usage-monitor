@@ -14,7 +14,7 @@ use windows::Win32::System::Threading::{CreateMutexW, WaitForSingleObject};
 use windows::Win32::UI::Accessibility::HWINEVENTHOOK;
 use windows::Win32::UI::HiDpi::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
-use windows::Win32::UI::Shell::ExtractIconExW;
+use windows::Win32::UI::Shell::{ExtractIconExW, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::appearance::{self, AppearancePreset};
@@ -111,6 +111,7 @@ const IDM_LANG_RUSSIAN: u16 = 49;
 const IDM_LANG_PORTUGUESE_BRAZIL: u16 = 50;
 const IDM_LANG_SIMPLIFIED_CHINESE: u16 = 51;
 const IDM_CHECK_UPDATE: u16 = 60;
+const IDM_OPEN_RELEASES: u16 = 61;
 const IDM_SHOW_SESSION_WINDOW: u16 = 71;
 const IDM_SHOW_WEEKLY_WINDOW: u16 = 72;
 const IDM_ALERT_OFF: u16 = 80;
@@ -121,6 +122,8 @@ const IDM_ALERT_30: u16 = 83;
 const IDM_APPEARANCE_COMPACT: u16 = 91;
 const IDM_APPEARANCE_MINIMAL: u16 = 92;
 
+const GITHUB_RELEASES_URL: &str =
+    "https://github.com/walle-2017/codex-usage-monitor/releases";
 const WM_DPICHANGED_MSG: u32 = 0x02E0;
 const TRAY_ICON_UPDATE_REPOSITION_SUPPRESS_MS: u64 = 750;
 
@@ -756,6 +759,75 @@ fn refresh_usage_texts(state: &mut AppState) {
         &codex.weekly,
         poller::UsageWindowKind::Weekly,
     );
+}
+
+fn github_releases_menu_label(language: LanguageId) -> &'static str {
+    match language {
+        LanguageId::English => "Open GitHub Releases",
+        LanguageId::Dutch => "GitHub Releases openen",
+        LanguageId::Spanish => "Abrir GitHub Releases",
+        LanguageId::French => "Ouvrir GitHub Releases",
+        LanguageId::German => "GitHub Releases öffnen",
+        LanguageId::Japanese => "GitHub Releases を開く",
+        LanguageId::Korean => "GitHub Releases 열기",
+        LanguageId::SimplifiedChinese => "前往 GitHub Releases",
+        LanguageId::TraditionalChinese => "前往 GitHub Releases",
+        LanguageId::Russian => "Открыть GitHub Releases",
+        LanguageId::PortugueseBrazil => "Abrir GitHub Releases",
+    }
+}
+
+fn manual_update_required_message(language: LanguageId, version: &str) -> String {
+    match language {
+        LanguageId::English => format!(
+            "Version v{version} is available, but the program or release asset name has changed. Automatic update is unavailable. Open GitHub Releases and update manually."
+        ),
+        LanguageId::Dutch => format!(
+            "Versie v{version} is beschikbaar, maar de programma- of releasebestandsnaam is gewijzigd. Automatisch bijwerken is niet mogelijk. Open GitHub Releases en werk handmatig bij."
+        ),
+        LanguageId::Spanish => format!(
+            "La versión v{version} está disponible, pero el nombre del programa o de los archivos de la versión ha cambiado. La actualización automática no está disponible. Abre GitHub Releases y actualiza manualmente."
+        ),
+        LanguageId::French => format!(
+            "La version v{version} est disponible, mais le nom du programme ou des fichiers de publication a changé. La mise à jour automatique est indisponible. Ouvrez GitHub Releases et mettez à jour manuellement."
+        ),
+        LanguageId::German => format!(
+            "Version v{version} ist verfügbar, aber der Programmname oder der Name der Release-Datei hat sich geändert. Die automatische Aktualisierung ist nicht möglich. Öffnen Sie GitHub Releases und aktualisieren Sie manuell."
+        ),
+        LanguageId::Japanese => format!(
+            "v{version} を利用できますが、プログラム名またはリリースファイル名が変更されています。自動更新できません。GitHub Releases を開き、手動で更新してください。"
+        ),
+        LanguageId::Korean => format!(
+            "v{version} 버전을 사용할 수 있지만 프로그램 이름 또는 릴리스 파일 이름이 변경되었습니다. 자동 업데이트를 사용할 수 없습니다. GitHub Releases를 열어 수동으로 업데이트하세요."
+        ),
+        LanguageId::SimplifiedChinese => format!(
+            "检测到 v{version}，但程序名称或发布文件名称已发生变化，无法自动升级。请前往 GitHub Releases 手动更新。"
+        ),
+        LanguageId::TraditionalChinese => format!(
+            "偵測到 v{version}，但程式名稱或發佈檔案名稱已變更，無法自動升級。請前往 GitHub Releases 手動更新。"
+        ),
+        LanguageId::Russian => format!(
+            "Доступна версия v{version}, но название программы или файла релиза изменилось. Автоматическое обновление недоступно. Откройте GitHub Releases и обновитесь вручную."
+        ),
+        LanguageId::PortugueseBrazil => format!(
+            "A versão v{version} está disponível, mas o nome do programa ou do arquivo da versão mudou. A atualização automática não está disponível. Abra o GitHub Releases e atualize manualmente."
+        ),
+    }
+}
+
+fn open_github_releases(hwnd: HWND) {
+    unsafe {
+        let operation = native_interop::wide_str("open");
+        let url = native_interop::wide_str(GITHUB_RELEASES_URL);
+        let _ = ShellExecuteW(
+            hwnd,
+            PCWSTR::from_raw(operation.as_ptr()),
+            PCWSTR::from_raw(url.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+    }
 }
 
 fn set_window_title(hwnd: HWND, strings: Strings) {
@@ -2468,6 +2540,25 @@ unsafe extern "system" fn wnd_proc(
                             &message,
                         );
                     }
+                    updater::UpdateUiResult::ManualUpdateRequired { version } => {
+                        let (strings, language) = {
+                            let state = lock_state();
+                            state
+                                .as_ref()
+                                .map(|s| (s.language.strings(), s.language))
+                                .unwrap_or_else(|| {
+                                    (LanguageId::English.strings(), LanguageId::English)
+                                })
+                        };
+                        tray_icon::clear_notification(hwnd);
+                        let message = manual_update_required_message(language, &version);
+                        tray_icon::notify_info(
+                            hwnd,
+                            tray_icon::TrayIconKind::Codex,
+                            strings.update_title,
+                            &message,
+                        );
+                    }
                     updater::UpdateUiResult::Failed { error, detail } => {
                         let strings = {
                             let state = lock_state();
@@ -2479,7 +2570,8 @@ unsafe extern "system" fn wnd_proc(
                         let message = match error {
                             updater::UpdateError::CheckFailed
                             | updater::UpdateError::InvalidRelease => strings.update_check_failed,
-                            updater::UpdateError::DownloadFailed => strings.update_download_failed,
+                            updater::UpdateError::DownloadFailed
+                            | updater::UpdateError::AssetMissing => strings.update_download_failed,
                             updater::UpdateError::InvalidChecksum
                             | updater::UpdateError::ChecksumMismatch => {
                                 strings.update_checksum_failed
@@ -2547,6 +2639,9 @@ unsafe extern "system" fn wnd_proc(
                 IDM_CHECK_UPDATE => {
                     diagnose::log("update command requested");
                     let _ = updater::start_update(hwnd);
+                }
+                IDM_OPEN_RELEASES => {
+                    open_github_releases(hwnd);
                 }
                 IDM_RESET_POSITION => {
                     {
@@ -3022,6 +3117,13 @@ fn show_context_menu(hwnd: HWND) {
             MENU_ITEM_FLAGS(0),
             IDM_CHECK_UPDATE as usize,
             PCWSTR::from_raw(version_label.as_ptr()),
+        );
+        let releases_label = native_interop::wide_str(github_releases_menu_label(language));
+        let _ = AppendMenuW(
+            settings_menu,
+            MENU_ITEM_FLAGS(0),
+            IDM_OPEN_RELEASES as usize,
+            PCWSTR::from_raw(releases_label.as_ptr()),
         );
 
         let settings_label = native_interop::wide_str(strings.settings);
