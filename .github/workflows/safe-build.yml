@@ -36,6 +36,10 @@ jobs:
         shell: pwsh
         run: ./scripts/assert-branding.ps1
 
+      - name: Verify v1.0.3 updater release compatibility
+        shell: pwsh
+        run: ./scripts/assert-v103-update-compat.ps1
+
       - name: Verify v1.0.4 version contract
         shell: pwsh
         run: ./scripts/assert-v1-version.ps1
