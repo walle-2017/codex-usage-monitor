@@ -34,18 +34,18 @@ Assert-Contains $Updater 'const CHECKSUM_ASSET_NAME: &str = "codex-usage-win.exe
 Assert-Contains $Updater '--codex-usage-win-updated-to=' 'Updater must emit the new one-shot success argument.'
 Assert-Contains $Updater '--codex-usage-updated-to=' 'Updater must still accept the v1.0.3 legacy success argument during migration.'
 
-Assert-Contains $Install "Programs\\CodexUsageWin" 'Installer must use the CodexUsageWin install directory.'
+Assert-Contains $Install "Programs\CodexUsageWin" 'Installer must use the CodexUsageWin install directory.'
 Assert-Contains $Install "codex-usage-win.exe" 'Installer must install codex-usage-win.exe.'
 Assert-Contains $Install "Codex Usage Win.lnk" 'Installer shortcuts must use Codex Usage Win.'
-Assert-Contains $Install "Uninstall\\CodexUsageWin" 'Installer uninstall registration must use CodexUsageWin.'
+Assert-Contains $Install "Uninstall\CodexUsageWin" 'Installer uninstall registration must use CodexUsageWin.'
 Assert-Contains $Install "DisplayName -Value 'Codex Usage Win'" 'Installed app display name must be Codex Usage Win.'
 Assert-Contains $Install "Shortcut.Description = 'Codex Usage Win'" 'Shortcut description must be Codex Usage Win.'
 Assert-Contains $Install 'CodexUsageWin-Installer' 'Installer User-Agent must use the new identity.'
 
-Assert-Contains $Uninstall "Programs\\CodexUsageWin" 'Uninstaller must target the CodexUsageWin install directory.'
+Assert-Contains $Uninstall "Programs\CodexUsageWin" 'Uninstaller must target the CodexUsageWin install directory.'
 Assert-Contains $Uninstall "codex-usage-win.exe" 'Uninstaller must target codex-usage-win.exe.'
 Assert-Contains $Uninstall "Codex Usage Win.lnk" 'Uninstaller shortcuts must use Codex Usage Win.'
-Assert-Contains $Uninstall "Uninstall\\CodexUsageWin" 'Uninstaller registry key must use CodexUsageWin.'
+Assert-Contains $Uninstall "Uninstall\CodexUsageWin" 'Uninstaller registry key must use CodexUsageWin.'
 Assert-Contains $Uninstall "Write-Output 'Codex Usage Win was uninstalled.'" 'Uninstaller message must use Codex Usage Win.'
 Assert-Contains $Uninstall "Join-Path $env:APPDATA 'CodexUsage'" 'Existing settings directory must remain CodexUsage for upgrade compatibility.'
 
@@ -62,7 +62,6 @@ foreach ($File in $LocalizationFiles) {
     Assert-Contains $Text 'update_title: "Codex Usage Win' "$($File.Name) update notification title must start with Codex Usage Win."
 }
 
-# The user-visible product identity should no longer remain in active product/install/update text.
 foreach ($Path in @('Cargo.toml', 'scripts/install.ps1', 'scripts/uninstall.ps1')) {
     $Text = Get-Content -Raw -LiteralPath $Path
     Assert-NotContains $Text 'Codex Usage.lnk' "$Path still contains the old shortcut name."
