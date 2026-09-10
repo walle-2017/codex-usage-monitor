@@ -193,6 +193,7 @@ pub struct Strings {
     pub update_downloading: &'static str,
     pub update_success: &'static str,
     pub update_current: &'static str,
+    pub update_available: &'static str,
     pub update_check_failed: &'static str,
     pub update_download_failed: &'static str,
     pub update_checksum_failed: &'static str,

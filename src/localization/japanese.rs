@@ -29,6 +29,7 @@ pub(super) const STRINGS: Strings = Strings {
     update_downloading: "更新中",
     update_success: "正常に更新しました:",
     update_current: "すでに最新バージョンです",
+    update_available: "新しいバージョンがあります",
     update_check_failed: "更新の確認に失敗しました",
     update_download_failed: "更新のダウンロードに失敗しました",
     update_checksum_failed: "更新ファイルの検証に失敗しました",

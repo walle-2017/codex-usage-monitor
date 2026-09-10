@@ -29,6 +29,7 @@ pub(super) const STRINGS: Strings = Strings {
     update_downloading: "업데이트 중",
     update_success: "성공적으로 업데이트됨:",
     update_current: "이미 최신 버전입니다",
+    update_available: "새 버전 사용 가능",
     update_check_failed: "업데이트 확인에 실패했습니다",
     update_download_failed: "업데이트 다운로드에 실패했습니다",
     update_checksum_failed: "업데이트 파일 검증에 실패했습니다",

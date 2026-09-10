@@ -23,10 +23,9 @@ Assert-Match $diagnose '\.parent\(\)' 'Runtime log must be created beside the ex
 Assert-Match $diagnose '\.append\(true\)' 'Runtime log must append across restarts.'
 Assert-Match $diagnose 'codex-usage\.log\.1|with_file_name\(' 'Runtime log must rotate to a single .1 backup.'
 Assert-Match $diagnose 'metadata\(' 'Runtime log rotation must inspect file size.'
-Assert-Match $main 'diagnose::init\(\)' 'Logging must initialize during normal startup.'
-if ($main -match 'if\s+diagnose_enabled\s*\{\s*match\s+diagnose::init') {
-    throw 'Runtime logging must not require --diagnose.'
-}
+Assert-Match $main '"--diagnose"' 'Runtime logging must require the --diagnose flag.'
+Assert-Match $main 'diagnose_enabled' 'main.rs must explicitly gate runtime logging.'
+Assert-Match $main 'if\s+diagnose_enabled\s*\{[\s\S]*diagnose::init\(\)' 'diagnose::init() must run only inside the --diagnose gate.'
 Assert-Match $main 'version=.*executable=' 'Startup log must include version and executable path.'
 Assert-Match $updater 'diagnose::log\("updater: check started"\)' 'Updater must log check start.'
 Assert-Match $updater 'diagnose::log\(format!\(\s*"updater: latest release' 'Updater must log resolved latest release state.'
@@ -44,4 +43,4 @@ foreach ($forbidden in @(
     }
 }
 
-Write-Host 'PASS: persistent runtime logging contract is present and avoids credential material.'
+Write-Host 'PASS: --diagnose-gated runtime logging contract is present and avoids credential material.'

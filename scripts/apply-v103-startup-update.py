@@ -568,12 +568,12 @@ write("README-FORK.md", fork)
 final_docs = read("scripts/assert-final-docs.ps1")
 final_docs = replace_exact(
     final_docs,
-    "if (-not $Readme.Contains('In-app update check') -or -not $ReadmeZh.Contains('应用内更新')) {\n    throw 'Primary READMEs must document the clickable in-app update flow.'\n}\n",
+    "if (-not $Readme.Contains('Version and in-app updates') -or -not $ReadmeZh.Contains('版本与应用内更新')) {\n    throw 'Primary READMEs must document the clickable in-app update flow.'\n}\n",
     "if (-not $Readme.Contains('vCURRENT --> vLATEST') -or -not $ReadmeZh.Contains('v当前版本 --> v最新版本')) {\n    throw 'Primary READMEs must document the startup-discovered version menu hint.'\n}\nif (-not $Joined.Contains('--diagnose')) {\n    throw 'User-facing docs must document opt-in diagnostic logging.'\n}\n",
     "final docs startup update assertion",
 )
 final_docs = final_docs.replace(
-    "PASS: user-facing documentation matches the Codex-only v1.0.2 product state with manual in-app updates.",
+    "PASS: user-facing documentation matches the Codex-only v1.0.3 product state with secure manual in-app updates.",
     "PASS: user-facing documentation matches the Codex-only v1.0.3 product state with startup discovery and manual in-app updates.",
 )
 write("scripts/assert-final-docs.ps1", final_docs)

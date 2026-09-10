@@ -75,8 +75,11 @@ if (-not $ForkReadme.Contains('system proxy') -and -not $ForkReadme.Contains('�
 if (-not $Joined.Contains('walle-2017/codex-usage-monitor') -or -not $Joined.Contains('codex-usage.exe.sha256')) {
     throw 'User-facing docs must describe the pinned fork Release updater and checksum asset.'
 }
-if (-not $Readme.Contains('Version and in-app updates') -or -not $ReadmeZh.Contains('版本与应用内更新')) {
-    throw 'Primary READMEs must document the clickable in-app update flow.'
+if (-not $Readme.Contains('vCURRENT --> vLATEST') -or -not $ReadmeZh.Contains('v当前版本 --> v最新版本')) {
+    throw 'Primary READMEs must document the startup-discovered version menu hint.'
+}
+if (-not $Joined.Contains('--diagnose')) {
+    throw 'User-facing docs must document opt-in diagnostic logging.'
 }
 if (-not $ForkReadme.Contains('--codex-usage-updated-to=') -or -not $Install.Contains('one-shot internal success argument')) {
     throw 'Fork and installation docs must document process-local update success handoff.'
@@ -88,5 +91,5 @@ if (-not $ForkReadme.Contains('普通更新状态和额度提醒') -or -not $Rea
     throw 'v1.0.3 docs must describe concise update/quota notifications.'
 }
 
-Write-Output 'PASS: user-facing documentation matches the Codex-only v1.0.3 product state with secure manual in-app updates.'
+Write-Output 'PASS: user-facing documentation matches the Codex-only v1.0.3 product state with startup discovery and manual in-app updates.'
 exit 0

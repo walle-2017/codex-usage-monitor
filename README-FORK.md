@@ -17,7 +17,8 @@ Tag：v1.0.3
 
 `v1.0.3` 在 `v1.0.2` 多显示器拖动基线上增加并完成应用内自动更新，同时补充持久运行日志和精简 Windows 通知：
 
-- **设置**中的版本号改为可点击，用户点击后手动检查更新；不会在启动时或后台定时检查。
+- 软件每次启动后自动执行一次只读的稳定 Release 检查；仅在发现更高版本时通知用户，不自动下载或安装。
+- **设置**中的版本号保持可点击；发现更高版本后显示 `v当前版本 --> v最新版本`，点击后进入现有手动更新流程。不会执行周期性后台更新检查。
 - 最新版本只从当前 Fork `walle-2017/codex-usage-monitor` 的稳定 Release 获取。
 - 最新版本发现通过 `https://github.com/walle-2017/codex-usage-monitor/releases/latest` 重定向解析稳定 `vX.Y.Z`，不依赖 GitHub 未认证 REST `releases/latest` API。
 - 只下载当前 Fork Release 中的 `codex-usage.exe` 与 `codex-usage.exe.sha256`，SHA256 一致后才进入替换流程。
@@ -26,7 +27,7 @@ Tag：v1.0.3
 - 更新成功通过一次性内部参数 `--codex-usage-updated-to=X.Y.Z` 交给新进程显示成功通知，不在程序目录创建持久 success marker 文件。
 - 普通更新状态和额度提醒使用简洁无警告大图标的 Windows 通知；真正的更新失败仍保留警告样式和具体错误信息。
 - 同一轮轮询触发多个额度窗口提醒时合并为一条通知，并继续按额度重置窗口去重。
-- 正常运行始终在 EXE 同目录追加写入 `codex-usage.log`；达到 5 MB 后轮转为 `codex-usage.log.1`，只保留一份历史日志。
+- 仅使用 `--diagnose` 启动时才在 EXE 同目录创建或追加 `codex-usage.log`；达到 5 MB 后轮转为 `codex-usage.log.1`，只保留一份历史日志。普通启动不写诊断日志。
 - 日志保留更新、网络、轮询和任务栏恢复关键事件，但不记录 access token、refresh token、`auth.json` 内容或代理密码。
 
 `Cargo.toml` 是产品版本的权威来源；`Cargo.lock` 根包版本、程序右键菜单中的版本号，以及 Windows EXE 的 FileVersion/ProductVersion 均与该版本保持一致。
@@ -179,7 +180,7 @@ SHA256 校验
 携带一次性成功参数重启
 ```
 
-不得把更新源重新指向 upstream Release，不得为更新要求 GitHub PAT，不得自动下载并信任 Release `install.ps1`，不得在启动时或定时后台检查更新。
+不得把更新源重新指向 upstream Release，不得为更新要求 GitHub PAT，不得自动下载并信任 Release `install.ps1`。允许且只允许每次软件启动后执行一次只读更新检查；该检查不得自动下载或安装，也不得扩展为周期性后台检查。
 
 `scripts/install.ps1` 的在线下载源也固定指向：
 
@@ -237,7 +238,7 @@ cargo build --release
 
 1. 不得恢复任何自动启动 Codex CLI 的 Token 刷新路径。
 2. 运行时必须保持 Codex-only。
-3. 应用内更新源必须继续固定到 `walle-2017/codex-usage-monitor` 的稳定 Release，不得改为 upstream，也不得恢复后台自动检查。
+3. 应用内更新源必须继续固定到 `walle-2017/codex-usage-monitor` 的稳定 Release；保留一次启动时只读检查，不得改为 upstream，也不得增加周期性后台检查。
 4. 不得恢复任务栏组件隐藏/显示状态机。
 5. 不得覆盖 Windows system proxy 支持。
 6. 不得破坏 Explorer watchdog、single-instance mutex、实时跨任务栏拖动、DPI-aware 拖动锚点和小任务栏适配。

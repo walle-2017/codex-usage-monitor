@@ -29,7 +29,7 @@ The monitor reads `$CODEX_HOME/auth.json` or `~/.codex/auth.json` but does not d
 
 ## Runtime log
 
-Runtime logging is enabled automatically. `codex-usage.log` is created in the same directory as the running `codex-usage.exe`; no `--diagnose` argument is required.
+Runtime logging is disabled during normal startup. Start the executable with `--diagnose` to create or append `codex-usage.log` in the same directory as the running `codex-usage.exe`.
 
 The log is append-only across normal restarts and records key events such as:
 
@@ -93,10 +93,10 @@ If the widget does not return after Explorer has stabilized, exit any remaining 
 
 Click the version item under **Settings** to check the latest stable Release from `walle-2017/codex-usage-monitor`. When a newer version is available, the application downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, replaces the installed or portable executable safely, and restarts without an extra confirmation prompt.
 
-There is no startup or periodic background update check.
+A check-only update lookup runs once after startup. It is silent when the current version is latest or the lookup fails, and only notifies when a higher stable version is found. There is no periodic background update check.
 
 ## In-app update fails
 
-The running version is left unchanged when the Release check, download, SHA256 verification, target-directory write preflight, or updater launch fails. The notification includes a concise technical reason; the full diagnostic sequence is written to `codex-usage.log` beside the executable.
+The running version is left unchanged when the Release check, download, SHA256 verification, target-directory write preflight, or updater launch fails. Manual update failures include a concise technical reason. For the full diagnostic sequence, restart Codex Usage with `--diagnose`; normal startup does not write `codex-usage.log`.
 
 Ensure GitHub is reachable through the same proxy environment used by Codex Usage and that the directory containing the running executable is writable. The updater does not request UAC elevation.

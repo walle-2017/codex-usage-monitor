@@ -30,6 +30,7 @@ pub(super) const STRINGS: Strings = Strings {
     update_downloading: "正在更新至",
     update_success: "已成功更新到",
     update_current: "目前已是最新版本",
+    update_available: "發現新版本",
     update_check_failed: "檢查更新失敗",
     update_download_failed: "下載更新失敗",
     update_checksum_failed: "更新檔案驗證失敗",

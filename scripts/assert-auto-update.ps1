@@ -77,7 +77,7 @@ Assert-Match $window 'notify_quota_alerts\(hwnd,' 'Polling and threshold changes
 Assert-Match $window 'join\("\\n"\)' 'Multiple quota windows must be combined into one multiline message.'
 Assert-NoMatch $window 'for\s+alert\s+in\s+&alerts\s*\{\s*tray_icon::notify' 'Quota alerts must not emit one Shell notification per window.'
 
-foreach ($field in @('update_checking','update_downloading','update_success')) {
+foreach ($field in @('update_checking','update_downloading','update_success','update_available')) {
     Assert-Match $localization ("pub " + $field + ":") "Localization Strings must define $field."
 }
 Assert-NoMatch $localization 'pub\s+update_restarting\s*:' 'Restarting localization is obsolete when no restart notification is queued.'
