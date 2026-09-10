@@ -6,7 +6,6 @@ on:
       - main
       - safe-no-codex-cli
       - codex-only-v1-cleanup
-      - feature/auto-update
   pull_request:
     branches:
       - main
