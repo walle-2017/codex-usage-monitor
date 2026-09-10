@@ -1,0 +1,43 @@
+name: Apply Codex Usage Win branding v4
+
+on:
+  push:
+    branches:
+      - feature/codex-usage-win-branding
+    paths:
+      - .github/workflows/apply-branding-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/codex-usage-win-branding
+          fetch-depth: 0
+
+      - name: Reuse branding transform
+        shell: pwsh
+        run: |
+          $workflow = Get-Content -Raw -LiteralPath '.github/workflows/apply-branding-v2.yml'
+          $m = [regex]::Match($workflow, "(?s)          @'\r?\n(.*?)\r?\n          '@ \| Set-Content -LiteralPath apply_branding\.py -Encoding UTF8")
+          if (-not $m.Success) { throw 'Branding transform block not found.' }
+          $script = ($m.Groups[1].Value -split "\r?\n" | ForEach-Object {
+              if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ }
+          }) -join "`n"
+          Set-Content -LiteralPath apply_branding.py -Value $script -Encoding UTF8
+          python apply_branding.py
+          Remove-Item apply_branding.py -Force
+
+      - name: Commit non-workflow branding changes
+        shell: pwsh
+        run: |
+          git config user.name "walle-2017"
+          git config user.email "1220754120@qq.com"
+          git add Cargo.toml Cargo.lock src scripts README.md README.zh-CN.md README-FORK.md docs/installation.md docs/troubleshooting.md
+          if (git diff --cached --quiet) { throw 'Branding transform produced no source changes.' }
+          git commit -m "feat: rename application to Codex Usage Win"
+          git push origin HEAD:feature/codex-usage-win-branding
