@@ -1,0 +1,2 @@
+This is a temporary v1.0.1 simulation build from feature/auto-update.
+It is intended to update itself to the public v1.0.2 Release for end-to-end notification testing.
