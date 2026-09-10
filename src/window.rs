@@ -2570,7 +2570,8 @@ unsafe extern "system" fn wnd_proc(
                         let message = match error {
                             updater::UpdateError::CheckFailed
                             | updater::UpdateError::InvalidRelease => strings.update_check_failed,
-                            updater::UpdateError::DownloadFailed => strings.update_download_failed,
+                            updater::UpdateError::DownloadFailed
+                            | updater::UpdateError::AssetMissing => strings.update_download_failed,
                             updater::UpdateError::InvalidChecksum
                             | updater::UpdateError::ChecksumMismatch => {
                                 strings.update_checksum_failed
