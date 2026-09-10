@@ -3567,7 +3567,7 @@ mod tests {
             &first,
         );
         assert_eq!(alerts.len(), 1);
-        assert!(alerts[0].message.contains("仅剩 15%"));
+        assert!(alerts[0].message.contains("剩余 15%"));
 
         let next = crate::models::UsageSection {
             percentage: 90.0,
