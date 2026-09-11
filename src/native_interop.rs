@@ -1,7 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use windows::core::PCWSTR;
+use windows::core::{PCSTR, PCWSTR};
 use windows::Win32::Foundation::{BOOL, FILETIME, HWND, LPARAM, RECT, SYSTEMTIME};
+use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_GETTASKBARPOS, APPBARDATA};
@@ -11,6 +12,28 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 pub const WS_POPUP_STYLE: u32 = 0x80000000;
 pub const WS_CHILD_STYLE: u32 = 0x40000000;
 pub const WS_CLIPSIBLINGS_STYLE: u32 = 0x04000000;
+
+const WCA_ACCENT_POLICY: i32 = 19;
+const ACCENT_DISABLED: i32 = 0;
+const ACCENT_ENABLE_ACRYLICBLURBEHIND: i32 = 4;
+
+#[repr(C)]
+struct AccentPolicy {
+    accent_state: i32,
+    accent_flags: u32,
+    gradient_color: u32,
+    animation_id: i32,
+}
+
+#[repr(C)]
+struct WindowCompositionAttribData {
+    attrib: i32,
+    pv_data: *mut std::ffi::c_void,
+    cb_data: u32,
+}
+
+type SetWindowCompositionAttributeFn =
+    unsafe extern "system" fn(HWND, *const WindowCompositionAttribData) -> BOOL;
 
 // Win event constants
 pub const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
@@ -153,6 +176,116 @@ pub fn embed_in_taskbar(hwnd: HWND, taskbar_hwnd: HWND) {
         let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
 
         let _ = SetParent(hwnd, taskbar_hwnd);
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_NOTOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+/// Detach the widget from Explorer and turn it back into a top-level popup.
+/// Native DWM backdrop effects require a top-level window; applying Acrylic to
+/// the taskbar child window makes the child stop presenting visible pixels.
+pub fn detach_from_taskbar_as_popup(hwnd: HWND) {
+    unsafe {
+        let _ = SetParent(hwnd, HWND::default());
+
+        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+        let new_style =
+            (style & !(WS_CHILD_STYLE | WS_CLIPSIBLINGS_STYLE)) | WS_POPUP_STYLE;
+        let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
+
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let _ = SetWindowLongW(
+            hwnd,
+            GWL_EXSTYLE,
+            ex_style | WS_EX_TOOLWINDOW.0 as i32 | WS_EX_NOACTIVATE.0 as i32,
+        );
+
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+/// Toggle WS_EX_LAYERED without changing the other extended window styles.
+pub fn set_layered_style(hwnd: HWND, enabled: bool) {
+    unsafe {
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let next = if enabled {
+            ex_style | WS_EX_LAYERED.0 as i32
+        } else {
+            ex_style & !(WS_EX_LAYERED.0 as i32)
+        };
+        if next != ex_style {
+            let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, next);
+            let _ = SetWindowPos(
+                hwnd,
+                HWND::default(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+    }
+}
+
+/// Apply native DWM acrylic to a window. SetWindowCompositionAttribute is
+/// dynamically resolved because Microsoft doesn't provide a normal import
+/// library for it.
+pub fn set_native_acrylic(hwnd: HWND, color: Option<Color>) -> bool {
+    unsafe {
+        let user32_name = wide_str("user32.dll");
+        let Ok(user32) = GetModuleHandleW(PCWSTR::from_raw(user32_name.as_ptr())) else {
+            return false;
+        };
+        let proc_name = b"SetWindowCompositionAttribute\0";
+        let Some(proc) = GetProcAddress(user32, PCSTR::from_raw(proc_name.as_ptr())) else {
+            return false;
+        };
+        let set_attribute: SetWindowCompositionAttributeFn = std::mem::transmute(proc);
+
+        let mut policy = if let Some(color) = color {
+            // Acrylic treats a zero tint alpha as disabled. Keep a minimum of 1
+            // so an almost-clear tint can still request backdrop blur.
+            let alpha = color.a.max(1) as u32;
+            let gradient_color = (alpha << 24)
+                | ((color.b as u32) << 16)
+                | ((color.g as u32) << 8)
+                | color.r as u32;
+            AccentPolicy {
+                accent_state: ACCENT_ENABLE_ACRYLICBLURBEHIND,
+                accent_flags: 0,
+                gradient_color,
+                animation_id: 0,
+            }
+        } else {
+            AccentPolicy {
+                accent_state: ACCENT_DISABLED,
+                accent_flags: 0,
+                gradient_color: 0,
+                animation_id: 0,
+            }
+        };
+        let data = WindowCompositionAttribData {
+            attrib: WCA_ACCENT_POLICY,
+            pv_data: (&mut policy as *mut AccentPolicy).cast(),
+            cb_data: std::mem::size_of::<AccentPolicy>() as u32,
+        };
+        set_attribute(hwnd, &data).as_bool()
     }
 }
 
@@ -209,28 +342,66 @@ pub fn colorref(r: u8, g: u8, b: u8) -> u32 {
 }
 
 /// Color helper
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+    pub a: u8,
 }
 
 impl Color {
     #[allow(dead_code)]
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
-        Self { r, g, b }
+        Self { r, g, b, a: 255 }
+    }
+
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    pub fn try_from_hex(hex: &str) -> Option<Self> {
+        let hex = hex.trim().trim_start_matches('#');
+        if hex.len() != 6 && hex.len() != 8 {
+            return None;
+        }
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        let a = if hex.len() == 8 {
+            u8::from_str_radix(&hex[6..8], 16).ok()?
+        } else {
+            255
+        };
+        Some(Self { r, g, b, a })
     }
 
     pub fn from_hex(hex: &str) -> Self {
-        let hex = hex.trim_start_matches('#');
-        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
-        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
-        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
-        Self { r, g, b }
+        Self::try_from_hex(hex).unwrap_or(Self::rgba(0, 0, 0, 255))
+    }
+
+    pub fn to_hex_rgba(self) -> String {
+        format!("#{:02X}{:02X}{:02X}{:02X}", self.r, self.g, self.b, self.a)
     }
 
     pub fn to_colorref(self) -> u32 {
         colorref(self.r, self.g, self.b)
+    }
+
+    pub fn blend_over(self, background: Self) -> Self {
+        if self.a == 255 {
+            return Self::rgba(self.r, self.g, self.b, 255);
+        }
+        let alpha = self.a as u16;
+        let inv = 255u16 - alpha;
+        let blend = |fg: u8, bg: u8| -> u8 {
+            ((fg as u16 * alpha + bg as u16 * inv + 127) / 255) as u8
+        };
+        Self::rgba(
+            blend(self.r, background.r),
+            blend(self.g, background.g),
+            blend(self.b, background.b),
+            255,
+        )
     }
 }
