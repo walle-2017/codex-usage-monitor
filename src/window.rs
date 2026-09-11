@@ -1475,37 +1475,43 @@ pub fn run() {
 }
 
 /// Render widget content and push to the layered window via UpdateLayeredWindow.
-/// Renders fully opaque with the actual taskbar background colour so that
-/// ClearType sub-pixel font rendering can be used for crisp, OS-native text.
+/// The panel can use a captured/blurred taskbar backdrop; foreground text remains
+/// GDI-rendered for crisp native typography.
 fn render_layered() {
     refresh_dpi();
     let (
         hwnd_val,
+        taskbar_hwnd,
         is_dark,
         embedded,
         language,
         strings,
+        style,
         codex_session_pct,
         codex_session_text,
         codex_weekly_pct,
         codex_weekly_text,
         show_session_window,
         show_weekly_window,
+        last_poll_ok,
     ) = {
         let state = lock_state();
         match state.as_ref() {
             Some(s) => (
                 s.hwnd,
+                s.taskbar_hwnd,
                 s.is_dark,
                 s.embedded,
                 s.language,
                 s.language.strings(),
+                s.styles.active(s.is_dark).clone(),
                 s.codex_session_percent,
                 s.codex_session_text.clone(),
                 s.codex_weekly_percent,
                 s.codex_weekly_text.clone(),
                 s.show_session_window,
                 s.show_weekly_window,
+                s.last_poll_ok,
             ),
             None => return,
         }
@@ -1527,20 +1533,10 @@ fn render_layered() {
             .map(widget_height_for_state)
             .unwrap_or(sc(AppearancePreset::Compact.metrics().widget_height))
     };
-    let track = if is_dark {
-        Color::from_hex("#363A3F")
-    } else {
-        Color::from_hex("#AAAAAA")
-    };
-    let text_color = if is_dark {
-        Color::from_hex("#A0A0A0")
-    } else {
-        Color::from_hex("#404040")
-    };
     let bg_color = if is_dark {
-        Color::from_hex("#1C1C1C")
+        Color::from_hex("#1C1C1CFF")
     } else {
-        Color::from_hex("#F3F3F3")
+        Color::from_hex("#F3F3F3FF")
     };
 
     unsafe {
@@ -1569,14 +1565,31 @@ fn render_layered() {
 
         let old_bmp = SelectObject(mem_dc, dib);
         let pixel_count = (width * height) as usize;
+        let pixel_data = std::slice::from_raw_parts_mut(bits as *mut u32, pixel_count);
+        fill_bitmap(pixel_data, bg_color);
+
+        let needs_backdrop = style.panel_blur_radius > 0
+            || style.color(StyleColorTarget::PanelBackground).a < 255
+            || style.color(StyleColorTarget::PanelBorder).a < 255;
+        let captured = if needs_backdrop {
+            taskbar_hwnd
+                .map(|taskbar| capture_taskbar_background(hwnd, taskbar, mem_dc, width, height))
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        if captured && style.panel_blur_radius > 0 {
+            box_blur_bitmap(pixel_data, width, height, sc(style.panel_blur_radius as i32).max(1));
+        }
+
+        blend_panel_bitmap(pixel_data, width, height, &style);
+
         paint_content(
             mem_dc,
             width,
             height,
             is_dark,
             &bg_color,
-            &text_color,
-            &track,
             language,
             strings,
             codex_session_pct,
@@ -1585,16 +1598,24 @@ fn render_layered() {
             &codex_weekly_text,
             show_session_window,
             show_weekly_window,
+            last_poll_ok,
+            false,
         );
 
-        let bg_bgr = bg_color.to_colorref();
-        let pixel_data = std::slice::from_raw_parts_mut(bits as *mut u32, pixel_count);
-        for px in pixel_data.iter_mut() {
-            let rgb = *px & 0x00FFFFFF;
-            if rgb == bg_bgr {
-                *px = 0x01000000;
-            } else {
-                *px = rgb | 0xFF000000;
+        let outer_inset = sc(1).max(1);
+        for y in 0..height {
+            for x in 0..width {
+                let idx = (y * width + x) as usize;
+                let rgb = pixel_data[idx] & 0x00FFFFFF;
+                if x >= outer_inset
+                    && x < width - outer_inset
+                    && y >= outer_inset
+                    && y < height - outer_inset
+                {
+                    pixel_data[idx] = rgb | 0xFF000000;
+                } else {
+                    pixel_data[idx] = rgb | 0x01000000;
+                }
             }
         }
 
@@ -1627,16 +1648,148 @@ fn render_layered() {
     }
 }
 
-/// Paint all widget content onto a DC with a given background color.
+fn fill_bitmap(pixels: &mut [u32], color: Color) {
+    let value = ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
+    pixels.fill(value);
+}
+
+fn capture_taskbar_background(
+    hwnd: HWND,
+    taskbar_hwnd: HWND,
+    destination_dc: HDC,
+    width: i32,
+    height: i32,
+) -> bool {
+    unsafe {
+        let mut widget_rect = RECT::default();
+        let mut taskbar_rect = RECT::default();
+        if GetWindowRect(hwnd, &mut widget_rect).is_err()
+            || GetWindowRect(taskbar_hwnd, &mut taskbar_rect).is_err()
+        {
+            return false;
+        }
+        let source_dc = GetDC(taskbar_hwnd);
+        if source_dc.is_invalid() {
+            return false;
+        }
+        let source_x = widget_rect.left - taskbar_rect.left;
+        let source_y = widget_rect.top - taskbar_rect.top;
+        let ok = BitBlt(
+            destination_dc,
+            0,
+            0,
+            width,
+            height,
+            source_dc,
+            source_x,
+            source_y,
+            SRCCOPY,
+        )
+        .is_ok();
+        ReleaseDC(taskbar_hwnd, source_dc);
+        ok
+    }
+}
+
+fn box_blur_bitmap(pixels: &mut [u32], width: i32, height: i32, radius: i32) {
+    if radius <= 0 || width <= 1 || height <= 1 {
+        return;
+    }
+    let width = width as usize;
+    let height = height as usize;
+    let radius = radius as usize;
+    let source = pixels.to_vec();
+    let mut horizontal = vec![0u32; pixels.len()];
+
+    for y in 0..height {
+        for x in 0..width {
+            let start = x.saturating_sub(radius);
+            let end = (x + radius).min(width - 1);
+            let count = (end - start + 1) as u32;
+            let mut r = 0u32;
+            let mut g = 0u32;
+            let mut b = 0u32;
+            for sx in start..=end {
+                let px = source[y * width + sx];
+                b += px & 0xFF;
+                g += (px >> 8) & 0xFF;
+                r += (px >> 16) & 0xFF;
+            }
+            horizontal[y * width + x] =
+                ((r / count) << 16) | ((g / count) << 8) | (b / count);
+        }
+    }
+
+    for y in 0..height {
+        for x in 0..width {
+            let start = y.saturating_sub(radius);
+            let end = (y + radius).min(height - 1);
+            let count = (end - start + 1) as u32;
+            let mut r = 0u32;
+            let mut g = 0u32;
+            let mut b = 0u32;
+            for sy in start..=end {
+                let px = horizontal[sy * width + x];
+                b += px & 0xFF;
+                g += (px >> 8) & 0xFF;
+                r += (px >> 16) & 0xFF;
+            }
+            pixels[y * width + x] =
+                ((r / count) << 16) | ((g / count) << 8) | (b / count);
+        }
+    }
+}
+
+fn blend_pixel(pixel: u32, color: Color) -> u32 {
+    if color.a == 0 {
+        return pixel & 0x00FFFFFF;
+    }
+    if color.a == 255 {
+        return ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
+    }
+    let bg_b = pixel & 0xFF;
+    let bg_g = (pixel >> 8) & 0xFF;
+    let bg_r = (pixel >> 16) & 0xFF;
+    let a = color.a as u32;
+    let inv = 255 - a;
+    let r = (color.r as u32 * a + bg_r * inv + 127) / 255;
+    let g = (color.g as u32 * a + bg_g * inv + 127) / 255;
+    let b = (color.b as u32 * a + bg_b * inv + 127) / 255;
+    (r << 16) | (g << 8) | b
+}
+
+fn blend_panel_bitmap(pixels: &mut [u32], width: i32, height: i32, style: &ThemeStyle) {
+    let outer_inset = sc(1).max(1);
+    let inner_inset = outer_inset + sc(1).max(1);
+    let border = style.color(StyleColorTarget::PanelBorder);
+    let fill = style.color(StyleColorTarget::PanelBackground);
+    for y in outer_inset..(height - outer_inset).max(outer_inset) {
+        for x in outer_inset..(width - outer_inset).max(outer_inset) {
+            let idx = (y * width + x) as usize;
+            let color = if x >= inner_inset
+                && x < width - inner_inset
+                && y >= inner_inset
+                && y < height - inner_inset
+            {
+                fill
+            } else {
+                border
+            };
+            pixels[idx] = blend_pixel(pixels[idx], color);
+        }
+    }
+}
+
+/// Paint widget foreground. For the normal-window fallback this also paints the
+/// panel using the same style, while the layered taskbar path prepares the
+/// backdrop and panel pixels before calling this function.
 #[allow(clippy::too_many_arguments)]
 fn paint_content(
     hdc: HDC,
     width: i32,
     height: i32,
-    is_dark: bool,
+    _is_dark: bool,
     bg: &Color,
-    text_color: &Color,
-    track: &Color,
     language: LanguageId,
     strings: Strings,
     codex_session_pct: f64,
@@ -1645,6 +1798,8 @@ fn paint_content(
     codex_weekly_text: &str,
     show_session_window: bool,
     show_weekly_window: bool,
+    last_poll_ok: bool,
+    paint_background: bool,
 ) {
     unsafe {
         let codex_session_pct = usage_percent_for_display(language, codex_session_pct);
@@ -1652,6 +1807,23 @@ fn paint_content(
         let preset = current_appearance_preset();
         let metrics = preset.metrics();
         let (label_width, text_width) = usage_layout_widths(language, preset);
+        let style = current_theme_style();
+        let panel_base = style
+            .color(StyleColorTarget::PanelBackground)
+            .blend_over(*bg);
+        let quota_type_color = style.color(StyleColorTarget::QuotaType).blend_over(panel_base);
+        let primary_color = if last_poll_ok {
+            style.color(StyleColorTarget::Remaining)
+        } else {
+            style.color(StyleColorTarget::Error)
+        }
+        .blend_over(panel_base);
+        let reset_color = style.color(StyleColorTarget::ResetTime).blend_over(panel_base);
+        let track = style
+            .color(StyleColorTarget::ProgressConsumed)
+            .blend_over(panel_base);
+        let drag_color = style.color(StyleColorTarget::DragHandle).blend_over(panel_base);
+
         let (small_taskbar_mode, small_show_weekly) = {
             let state = lock_state();
             state
@@ -1670,18 +1842,22 @@ fn paint_content(
             show_weekly_window
         };
 
-        let client_rect = RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-        };
-        let bg_brush = CreateSolidBrush(COLORREF(bg.to_colorref()));
-        FillRect(hdc, &client_rect, bg_brush);
-        let _ = DeleteObject(bg_brush);
+        if paint_background {
+            let client_rect = RECT {
+                left: 0,
+                top: 0,
+                right: width,
+                bottom: height,
+            };
+            let bg_brush = CreateSolidBrush(COLORREF(bg.to_colorref()));
+            FillRect(hdc, &client_rect, bg_brush);
+            let _ = DeleteObject(bg_brush);
 
-        draw_acrylic_panel(hdc, width, height, is_dark, metrics.panel_radius);
-        draw_drag_handle(hdc, height, is_dark);
+            let border = style.color(StyleColorTarget::PanelBorder).blend_over(*bg);
+            draw_panel(hdc, width, height, &border, &panel_base);
+        }
+
+        draw_drag_handle(hdc, height, &drag_color);
 
         let content_x = sc(DRAG_HANDLE_HIT_W) + sc(metrics.outer_padding);
         let row2_y = height - sc(4) - sc(SEGMENT_H);
@@ -1689,7 +1865,6 @@ fn paint_content(
         let single_row_y = (height - sc(SEGMENT_H)) / 2;
 
         let _ = SetBkMode(hdc, TRANSPARENT);
-        let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
         let font_name = native_interop::wide_str("Segoe UI");
         let font = CreateFontW(
             sc(metrics.font_height),
@@ -1718,15 +1893,16 @@ fn paint_content(
                 } else {
                     single_row_y
                 },
-                is_dark,
-                language,
-                text_color,
+                &quota_type_color,
+                &primary_color,
+                &reset_color,
                 strings.session_window,
                 codex_session_pct,
                 codex_session_text,
-                track,
+                &track,
                 label_width,
                 text_width,
+                panel_base,
             );
         }
         if effective_show_weekly {
@@ -1738,15 +1914,16 @@ fn paint_content(
                 } else {
                     single_row_y
                 },
-                is_dark,
-                language,
-                text_color,
+                &quota_type_color,
+                &primary_color,
+                &reset_color,
                 strings.weekly_window,
                 codex_weekly_pct,
                 codex_weekly_text,
-                track,
+                &track,
                 label_width,
                 text_width,
+                panel_base,
             );
         }
 
