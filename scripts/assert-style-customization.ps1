@@ -58,6 +58,15 @@ if ($windowProduction -notmatch 'set_layered_style\(hwnd, false\)' -or
     $windowProduction -notmatch 'native_acrylic_active') {
     throw 'Acrylic rendering must leave UpdateLayeredWindow mode and use WM_PAINT foreground rendering.'
 }
+if ($native -notmatch 'detach_from_taskbar_as_popup' -or
+    $windowProduction -notmatch 'activate_acrylic_popup' -or
+    $windowProduction -notmatch 'restore_layered_taskbar_mode') {
+    throw 'Acrylic must run as a top-level popup and restore the embedded layered taskbar mode.'
+}
+if ($windowProduction -notmatch 'select_taskbar_for_popup' -or
+    $windowProduction -notmatch 'taskbar_rect\.left \+ drag_left') {
+    throw 'Acrylic popup dragging must use top-level screen coordinates and preserve taskbar selection.'
+}
 if ($windowProduction -match 'capture_taskbar_background' -or
     $windowProduction -match 'box_blur_bitmap' -or
     $windowProduction -match 'tint_frosted_panel_bitmap') {
