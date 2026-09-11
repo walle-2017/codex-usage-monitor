@@ -1476,6 +1476,97 @@ pub fn run() {
     }
 }
 
+fn activate_acrylic_popup(hwnd: HWND, acrylic_color: Color) -> bool {
+    let was_embedded = {
+        let state = lock_state();
+        state.as_ref().map(|s| s.embedded).unwrap_or(false)
+    };
+
+    if was_embedded {
+        native_interop::detach_from_taskbar_as_popup(hwnd);
+        {
+            let mut state = lock_state();
+            if let Some(s) = state.as_mut() {
+                s.embedded = false;
+                s.native_acrylic_active = false;
+            }
+        }
+        position_at_taskbar();
+    }
+
+    native_interop::set_layered_style(hwnd, false);
+    let ok = native_interop::set_native_acrylic(hwnd, Some(acrylic_color));
+    if ok {
+        {
+            let mut state = lock_state();
+            if let Some(s) = state.as_mut() {
+                s.native_acrylic_active = true;
+            }
+        }
+        unsafe {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            let _ = InvalidateRect(hwnd, None, true);
+            let _ = UpdateWindow(hwnd);
+        }
+        diagnose::log("native acrylic popup activated");
+        true
+    } else {
+        diagnose::log("native acrylic popup activation failed; restoring layered taskbar mode");
+        restore_layered_taskbar_mode(hwnd);
+        false
+    }
+}
+
+fn restore_layered_taskbar_mode(hwnd: HWND) {
+    let (taskbar_index, was_acrylic) = {
+        let state = lock_state();
+        state
+            .as_ref()
+            .map(|s| (s.taskbar_index, s.native_acrylic_active))
+            .unwrap_or((0, false))
+    };
+
+    let _ = native_interop::set_native_acrylic(hwnd, None);
+    native_interop::set_layered_style(hwnd, true);
+
+    {
+        let mut state = lock_state();
+        if let Some(s) = state.as_mut() {
+            s.native_acrylic_active = false;
+        }
+    }
+
+    if attach_to_taskbar(hwnd, taskbar_index) {
+        position_at_taskbar();
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        }
+        if was_acrylic {
+            diagnose::log("restored layered taskbar mode after acrylic");
+        }
+    } else {
+        diagnose::log("unable to re-embed after acrylic; using top-level layered fallback");
+        native_interop::detach_from_taskbar_as_popup(hwnd);
+        native_interop::set_layered_style(hwnd, true);
+        {
+            let mut state = lock_state();
+            if let Some(s) = state.as_mut() {
+                s.embedded = false;
+            }
+        }
+        position_at_taskbar();
+    }
+}
+
 /// Render widget content and push to the layered window via UpdateLayeredWindow.
 /// The panel can use a captured/blurred taskbar backdrop; foreground text remains
 /// GDI-rendered for crisp native typography.
@@ -1484,7 +1575,6 @@ fn render_layered() {
     let (
         hwnd_val,
         is_dark,
-        embedded,
         language,
         strings,
         style,
@@ -1501,7 +1591,6 @@ fn render_layered() {
             Some(s) => (
                 s.hwnd,
                 s.is_dark,
-                s.embedded,
                 s.language,
                 s.language.strings(),
                 s.styles.active(s.is_dark).clone(),
@@ -1519,46 +1608,39 @@ fn render_layered() {
 
     let hwnd = hwnd_val.to_hwnd();
     let acrylic_requested = style.panel_blur_radius > 0;
+    let native_acrylic_active = {
+        let state = lock_state();
+        state
+            .as_ref()
+            .map(|s| s.native_acrylic_active)
+            .unwrap_or(false)
+    };
+
     if acrylic_requested {
-        native_interop::set_layered_style(hwnd, false);
         let acrylic_color = style.color(StyleColorTarget::PanelBackground);
-        let acrylic_ok = native_interop::set_native_acrylic(hwnd, Some(acrylic_color));
-        {
-            let mut state = lock_state();
-            if let Some(s) = state.as_mut() {
-                s.native_acrylic_active = acrylic_ok;
-            }
-        }
-        diagnose::log(format!(
-            "native acrylic requested embedded={embedded} result={acrylic_ok}"
-        ));
-        if acrylic_ok {
+        if native_acrylic_active {
+            let _ = native_interop::set_native_acrylic(hwnd, Some(acrylic_color));
             unsafe {
-                let _ = InvalidateRect(hwnd, None, true);
+                let _ = InvalidateRect(hwnd, None, false);
+                let _ = UpdateWindow(hwnd);
             }
             return;
         }
-
-        // Don't silently fall back to the old taskbar screenshot blur. It does
-        // not capture the DWM-composited backdrop reliably.
-        let _ = native_interop::set_native_acrylic(hwnd, None);
-        if embedded {
-            native_interop::set_layered_style(hwnd, true);
+        if activate_acrylic_popup(hwnd, acrylic_color) {
+            return;
         }
-    } else {
-        let _ = native_interop::set_native_acrylic(hwnd, None);
-        if embedded {
-            native_interop::set_layered_style(hwnd, true);
-        }
-        let mut state = lock_state();
-        if let Some(s) = state.as_mut() {
-            s.native_acrylic_active = false;
-        }
+    } else if native_acrylic_active {
+        restore_layered_taskbar_mode(hwnd);
     }
 
+    let embedded = {
+        let state = lock_state();
+        state.as_ref().map(|s| s.embedded).unwrap_or(false)
+    };
     if !embedded {
         unsafe {
             let _ = InvalidateRect(hwnd, None, false);
+            let _ = UpdateWindow(hwnd);
         }
         return;
     }
