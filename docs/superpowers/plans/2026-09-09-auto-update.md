@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the tray-menu version item clickable and let Codex Usage securely update itself from the latest stable Release of `walle-2017/codex-usage-monitor`, supporting both installed and portable executions.
+**Goal:** Make the tray-menu version item clickable and let Codex Usage securely update itself from the latest stable Release of `walle-2017/codex-usage-win`, supporting both installed and portable executions.
 
 **Architecture:** Keep Win32 menu/message concerns in `window.rs` and add a focused `updater.rs` domain module for GitHub Release discovery, version selection, download/checksum verification, staging, and launching a generated one-time PowerShell replacement helper. The helper waits for the old PID to exit, performs `.old` rollback-safe replacement at `current_exe()`, updates uninstall metadata only when it already refers to this executable, and relaunches the new binary.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Development stays on `feature/auto-update`; do not modify `main` until explicit user approval after real-machine testing.
-- Update metadata and assets come only from `walle-2017/codex-usage-monitor` Releases.
+- Update metadata and assets come only from `walle-2017/codex-usage-win` Releases.
 - Only stable, non-draft, non-prerelease Releases are eligible.
 - Require exact assets `codex-usage.exe` and `codex-usage.exe.sha256`.
 - Do not exit the running app until the new EXE is completely downloaded and its SHA256 is verified.
@@ -63,7 +63,7 @@ src/window.rs defines IDM_CHECK_UPDATE
 version menu item uses IDM_CHECK_UPDATE and is not MF_GRAYED
 WM_COMMAND dispatches IDM_CHECK_UPDATE
 src/main.rs contains mod updater;
-src/updater.rs contains the fixed latest-release URL for walle-2017/codex-usage-monitor
+src/updater.rs contains the fixed latest-release URL for walle-2017/codex-usage-win
 updater requires codex-usage.exe and codex-usage.exe.sha256
 updater contains SHA256 verification and rollback helper behavior
 updater does not contain codex login/auth token mutation or codex CLI execution

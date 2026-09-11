@@ -91,7 +91,7 @@ If the widget does not return after Explorer has stabilized, exit any remaining 
 
 ## In-app update
 
-Click the version item under **Settings** to check the latest stable Release from `walle-2017/codex-usage-monitor`. When a newer version is available, the application downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, replaces the installed or portable executable safely, and restarts without an extra confirmation prompt.
+Click the version item under **Settings** to check the latest stable Release from `walle-2017/codex-usage-win`. When a newer version is available, the application downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, replaces the installed or portable executable safely, and restarts without an extra confirmation prompt.
 
 A check-only update lookup runs once after startup. It is silent when the current version is latest or the lookup fails, and only notifies when a higher stable version is found. There is no periodic background update check.
 

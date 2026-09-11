@@ -14,11 +14,11 @@ use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 use crate::diagnose;
 
 const LATEST_RELEASE_URL: &str =
-    "https://github.com/walle-2017/codex-usage-monitor/releases/latest";
-const RELEASE_TAG_PREFIX: &str = "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v";
-const RELEASE_TAG_RELATIVE_PREFIX: &str = "/walle-2017/codex-usage-monitor/releases/tag/v";
+    "https://github.com/walle-2017/codex-usage-win/releases/latest";
+const RELEASE_TAG_PREFIX: &str = "https://github.com/walle-2017/codex-usage-win/releases/tag/v";
+const RELEASE_TAG_RELATIVE_PREFIX: &str = "/walle-2017/codex-usage-win/releases/tag/v";
 const RELEASE_ASSET_PREFIX: &str =
-    "https://github.com/walle-2017/codex-usage-monitor/releases/download/";
+    "https://github.com/walle-2017/codex-usage-win/releases/download/";
 const EXE_ASSET_NAME: &str = "codex-usage.exe";
 const CHECKSUM_ASSET_NAME: &str = "codex-usage.exe.sha256";
 const UPDATE_TIMEOUT_SECS: u64 = 30;
@@ -977,14 +977,14 @@ mod tests {
     #[test]
     fn release_redirect_accepts_absolute_and_relative_fork_tags() {
         let (absolute, text) = parse_release_redirect(
-            "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.10",
+            "https://github.com/walle-2017/codex-usage-win/releases/tag/v1.0.10",
         )
         .unwrap();
         assert_eq!(absolute, Version::parse("1.0.10").unwrap());
         assert_eq!(text, "1.0.10");
 
         let (relative, text) =
-            parse_release_redirect("/walle-2017/codex-usage-monitor/releases/tag/v1.0.3").unwrap();
+            parse_release_redirect("/walle-2017/codex-usage-win/releases/tag/v1.0.3").unwrap();
         assert_eq!(relative, Version::parse("1.0.3").unwrap());
         assert_eq!(text, "1.0.3");
     }
@@ -1000,7 +1000,7 @@ mod tests {
         );
         assert_eq!(
             parse_release_redirect(
-                "https://github.com/walle-2017/codex-usage-monitor/releases/tag/v1.0.3-beta.1"
+                "https://github.com/walle-2017/codex-usage-win/releases/tag/v1.0.3-beta.1"
             )
             .unwrap_err(),
             UpdateError::InvalidRelease
@@ -1013,11 +1013,11 @@ mod tests {
         assert_eq!(update.version, "1.0.3");
         assert_eq!(
             update.executable_url,
-            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe"
+            "https://github.com/walle-2017/codex-usage-win/releases/download/v1.0.3/codex-usage.exe"
         );
         assert_eq!(
             update.checksum_url,
-            "https://github.com/walle-2017/codex-usage-monitor/releases/download/v1.0.3/codex-usage.exe.sha256"
+            "https://github.com/walle-2017/codex-usage-win/releases/download/v1.0.3/codex-usage.exe.sha256"
         );
     }
 

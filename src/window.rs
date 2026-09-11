@@ -123,7 +123,7 @@ const IDM_APPEARANCE_COMPACT: u16 = 91;
 const IDM_APPEARANCE_MINIMAL: u16 = 92;
 
 const GITHUB_RELEASES_URL: &str =
-    "https://github.com/walle-2017/codex-usage-monitor/releases";
+    "https://github.com/walle-2017/codex-usage-win/releases";
 const WM_DPICHANGED_MSG: u32 = 0x02E0;
 const TRAY_ICON_UPDATE_REPOSITION_SUPPRESS_MS: u64 = 750;
 

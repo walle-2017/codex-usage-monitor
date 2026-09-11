@@ -4,8 +4,8 @@ version = "1.0.3"
 edition = "2021"
 license = "MIT"
 description = "Codex Usage"
-homepage = "https://github.com/walle-2017/codex-usage-monitor"
-repository = "https://github.com/walle-2017/codex-usage-monitor"
+homepage = "https://github.com/walle-2017/codex-usage-win"
+repository = "https://github.com/walle-2017/codex-usage-win"
 
 [package.metadata.winres]
 CompanyName = "Ray"

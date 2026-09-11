@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add an in-app update flow to Codex Usage so the version item in the tray settings menu is clickable. Clicking the current version checks the latest non-draft, non-prerelease GitHub Release from this fork (`walle-2017/codex-usage-monitor`), and when a newer version exists, downloads, verifies, installs, and restarts automatically without an additional confirmation dialog.
+Add an in-app update flow to Codex Usage so the version item in the tray settings menu is clickable. Clicking the current version checks the latest non-draft, non-prerelease GitHub Release from this fork (`walle-2017/codex-usage-win`), and when a newer version exists, downloads, verifies, installs, and restarts automatically without an additional confirmation dialog.
 
 The update flow must support both the normal installed layout and a portable executable launched from an arbitrary writable directory.
 
@@ -11,7 +11,7 @@ The update flow must support both the normal installed layout and a portable exe
 In scope:
 
 - Make the currently disabled version menu item clickable.
-- Check `https://api.github.com/repos/walle-2017/codex-usage-monitor/releases/latest` only when the user clicks the version item.
+- Check `https://api.github.com/repos/walle-2017/codex-usage-win/releases/latest` only when the user clicks the version item.
 - Compare the latest Release version against `env!("CARGO_PKG_VERSION")` using numeric semantic-version ordering rather than string comparison.
 - Ignore draft and prerelease releases.
 - Require both `codex-usage.exe` and `codex-usage.exe.sha256` Release assets.
@@ -90,7 +90,7 @@ Network/checksum/update errors must be represented by a small explicit error typ
 
 The only update metadata source is:
 
-`https://api.github.com/repos/walle-2017/codex-usage-monitor/releases/latest`
+`https://api.github.com/repos/walle-2017/codex-usage-win/releases/latest`
 
 The updater does not follow repository data supplied by local configuration and does not accept another owner/repository at runtime.
 
@@ -255,7 +255,7 @@ Development follows TDD. At minimum, automated coverage must prove:
 10. Version menu item is not `MF_GRAYED` and has a real command ID.
 11. Version command dispatch starts the updater path rather than blocking the UI thread.
 12. Replacement helper contains rollback behavior and waits for the old PID.
-13. Update source is pinned to `walle-2017/codex-usage-monitor`.
+13. Update source is pinned to `walle-2017/codex-usage-win`.
 14. Existing no-Codex-CLI-refresh assertion still passes.
 15. Existing Codex-only runtime assertions still pass.
 16. `cargo test` passes.
@@ -270,7 +270,7 @@ The feature is accepted when, on a Windows machine:
 
 - The version row in the settings menu is enabled and clickable.
 - Clicking it while running the latest version reports that the application is current.
-- When a newer valid Release exists in `walle-2017/codex-usage-monitor`, clicking it requires no confirmation, downloads the two required assets, verifies SHA256, replaces the executable, and restarts into the newer version.
+- When a newer valid Release exists in `walle-2017/codex-usage-win`, clicking it requires no confirmation, downloads the two required assets, verifies SHA256, replaces the executable, and restarts into the newer version.
 - The same flow works when the executable is installed under the normal local-app-data path and when it is launched from an arbitrary writable portable directory.
 - A checksum mismatch or unwritable directory leaves the old application running and unchanged.
 - A replacement failure after process exit restores the previous executable.

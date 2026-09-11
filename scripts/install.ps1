@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Repository = 'walle-2017/codex-usage-monitor'
+$Repository = 'walle-2017/codex-usage-win'
 $InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexUsage'
 $TargetPath = Join-Path $InstallDirectory 'codex-usage.exe'
 $InstalledUninstaller = Join-Path $InstallDirectory 'uninstall.ps1'
@@ -76,7 +76,7 @@ try {
             "https://api.github.com/repos/$Repository/releases/tags/v$($Version.TrimStart('v'))"
         }
         else {
-            "https://api.github.com/repos/$Repository/releases/latest"
+            "https://api.github.com/repos/$Repository/releases/tags/v1.0.3"
         }
 
         $Release = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'CodexUsage-Installer' } -Uri $ApiUrl

@@ -50,10 +50,10 @@ $ForkReadme = Get-Content -Raw -LiteralPath 'README-FORK.md'
 $Install = Get-Content -Raw -LiteralPath 'docs/installation.md'
 $Troubleshooting = Get-Content -Raw -LiteralPath 'docs/troubleshooting.md'
 
-if (-not $Readme.Contains('https://github.com/walle-2017/codex-usage-monitor/releases/latest')) {
+if (-not $Readme.Contains('https://github.com/walle-2017/codex-usage-win/releases/latest')) {
     throw 'README.md must point installation downloads at the fork release page.'
 }
-if (-not $ReadmeZh.Contains('https://github.com/walle-2017/codex-usage-monitor/releases/latest')) {
+if (-not $ReadmeZh.Contains('https://github.com/walle-2017/codex-usage-win/releases/latest')) {
     throw 'README.zh-CN.md must point installation downloads at the fork release page.'
 }
 if (-not $ForkReadme.Contains('1.0.3')) {
@@ -72,7 +72,7 @@ if (-not $ForkReadme.Contains('system proxy') -and -not $ForkReadme.Contains('�
     throw 'README-FORK.md must retain the Windows system proxy behavior.'
 }
 
-if (-not $Joined.Contains('walle-2017/codex-usage-monitor') -or -not $Joined.Contains('codex-usage.exe.sha256')) {
+if (-not $Joined.Contains('walle-2017/codex-usage-win') -or -not $Joined.Contains('codex-usage.exe.sha256')) {
     throw 'User-facing docs must describe the pinned fork Release updater and checksum asset.'
 }
 if (-not $Readme.Contains('vCURRENT --> vLATEST') -or -not $ReadmeZh.Contains('v当前版本 --> v最新版本')) {

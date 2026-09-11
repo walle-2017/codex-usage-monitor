@@ -42,7 +42,7 @@
 
 ## 安装
 
-如需按用户安装，请从 [Fork 最新 Release](https://github.com/walle-2017/codex-usage-monitor/releases/latest) 下载 `install.ps1`，然后运行：
+如需按用户安装，请从 [Fork 最新 Release](https://github.com/walle-2017/codex-usage-win/releases/latest) 下载 `install.ps1`，然后运行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
@@ -128,7 +128,7 @@ Codex 用量请求会在 TLS 连接中携带 OAuth Bearer Token，因此应只�
 
 当前正式版本为 **1.0.3**。程序菜单显示的 `v1.0.3` 和 Windows EXE 版本元数据都来自同一个包版本源；清理后的首个 Codex-only 安全基线版本为 `v1.0.0`。
 
-软件每次启动后会自动执行一次只读的 Release 更新检查。若发现更高的稳定版本，会先显示一条精简通知，并把**设置**中的版本号显示为 `v当前版本 --> v最新版本`；启动检查本身不会下载或安装更新。点击该版本号后才进入现有手动更新流程。版本发现仍只访问 `walle-2017/codex-usage-monitor` 当前 Fork 的最新稳定 Release，并通过 GitHub Release 重定向完成，不依赖 GitHub 未认证 REST API。
+软件每次启动后会自动执行一次只读的 Release 更新检查。若发现更高的稳定版本，会先显示一条精简通知，并把**设置**中的版本号显示为 `v当前版本 --> v最新版本`；启动检查本身不会下载或安装更新。点击该版本号后才进入现有手动更新流程。版本发现仍只访问 `walle-2017/codex-usage-win` 当前 Fork 的最新稳定 Release，并通过 GitHub Release 重定向完成，不依赖 GitHub 未认证 REST API。
 
 用户点击版本号并确认存在更高版本后，程序会下载 `codex-usage.exe` 与 `codex-usage.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。更新器在替换成功前保留回滚副本，也不会下载或执行 Release 中的 `install.ps1`。不会执行周期性后台更新检查；自动检查仅在每次软件启动后执行一次，并且只通知、不自动下载安装。
 

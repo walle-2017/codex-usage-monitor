@@ -42,7 +42,7 @@ To recover from an expired login, sign in through the official Codex CLI/app you
 
 ## Install
 
-For a per-user installation, download `install.ps1` from the [latest fork release](https://github.com/walle-2017/codex-usage-monitor/releases/latest), then run:
+For a per-user installation, download `install.ps1` from the [latest fork release](https://github.com/walle-2017/codex-usage-win/releases/latest), then run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
@@ -128,7 +128,7 @@ The monitor does not directly edit `auth.json` and does not start Codex CLI proc
 
 The current release is **1.0.3**. The in-app menu displays `v1.0.3` from the package version, and Windows executable metadata is generated from the same source. The initial cleaned Codex-only safety baseline was `v1.0.0`.
 
-Codex Usage performs one check-only Release lookup after startup. If a higher stable version exists, it shows a concise notification and the **Settings** version row becomes `vCURRENT --> vLATEST`. The startup check never downloads or installs an update. Clicking the version row performs the existing manual update flow. All discovery is limited to the latest stable Release of `walle-2017/codex-usage-monitor` and uses the fork's GitHub Release redirect rather than the unauthenticated GitHub REST API.
+Codex Usage performs one check-only Release lookup after startup. If a higher stable version exists, it shows a concise notification and the **Settings** version row becomes `vCURRENT --> vLATEST`. The startup check never downloads or installs an update. Clicking the version row performs the existing manual update flow. All discovery is limited to the latest stable Release of `walle-2017/codex-usage-win` and uses the fork's GitHub Release redirect rather than the unauthenticated GitHub REST API.
 
 When the user clicks the version row and a newer version exists, Codex Usage downloads `codex-usage.exe` and `codex-usage.exe.sha256`, verifies SHA256, safely replaces the currently running installed or portable executable, and restarts automatically. The updater keeps a rollback copy until replacement succeeds and never downloads or executes a Release `install.ps1`. There is no periodic background update check; the automatic check runs once per application startup and is notification-only.
 

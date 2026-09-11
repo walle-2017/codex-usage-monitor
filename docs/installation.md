@@ -16,7 +16,7 @@ The installer is per-user and does not request elevation. It verifies the releas
 Online installation downloads release assets only from the fork repository:
 
 ```text
-walle-2017/codex-usage-monitor
+walle-2017/codex-usage-win
 ```
 
 The installer expects `codex-usage.exe`, `codex-usage.exe.sha256`, and `uninstall.ps1` from the same Release.
@@ -29,7 +29,7 @@ The installer expects `codex-usage.exe`, `codex-usage.exe.sha256`, and `uninstal
 %APPDATA%\CodexUsage\settings.json
 ```
 
-Both installed and portable copies perform one check-only lookup of the latest stable Release from `walle-2017/codex-usage-monitor` after startup. If a higher version exists, Codex Usage notifies the user and the **Settings** version row displays `vCURRENT --> vLATEST`. No file is downloaded by the startup check. Clicking the version row starts the manual updater, which downloads `codex-usage.exe` plus `codex-usage.exe.sha256`, verifies SHA256, stages the replacement beside the running executable, and restarts automatically.
+Both installed and portable copies perform one check-only lookup of the latest stable Release from `walle-2017/codex-usage-win` after startup. If a higher version exists, Codex Usage notifies the user and the **Settings** version row displays `vCURRENT --> vLATEST`. No file is downloaded by the startup check. Clicking the version row starts the manual updater, which downloads `codex-usage.exe` plus `codex-usage.exe.sha256`, verifies SHA256, stages the replacement beside the running executable, and restarts automatically.
 
 The updater does not request UAC elevation. If the executable directory is not writable, the running version is left unchanged. It never downloads or executes the Release `install.ps1` as part of an in-app update.
 

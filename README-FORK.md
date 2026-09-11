@@ -1,6 +1,6 @@
 # Fork 说明
 
-本文档定义 `walle-2017/codex-usage-monitor` 相对上游仓库的**最终维护基线**。当前正式版本为 `v1.0.3`，继续以 Codex-only、最小运行时权限、稳定任务栏显示和可审计网络行为为核心目标。
+本文档定义 `walle-2017/codex-usage-win` 相对上游仓库的**最终维护基线**。当前正式版本为 `v1.0.3`，继续以 Codex-only、最小运行时权限、稳定任务栏显示和可审计网络行为为核心目标。
 
 本文档只描述当前仍然有效的差异和约束，不记录中间重构过程。
 
@@ -19,8 +19,8 @@ Tag：v1.0.3
 
 - 软件每次启动后自动执行一次只读的稳定 Release 检查；仅在发现更高版本时通知用户，不自动下载或安装。
 - **设置**中的版本号保持可点击；发现更高版本后显示 `v当前版本 --> v最新版本`，点击后进入现有手动更新流程。不会执行周期性后台更新检查。
-- 最新版本只从当前 Fork `walle-2017/codex-usage-monitor` 的稳定 Release 获取。
-- 最新版本发现通过 `https://github.com/walle-2017/codex-usage-monitor/releases/latest` 重定向解析稳定 `vX.Y.Z`，不依赖 GitHub 未认证 REST `releases/latest` API。
+- 最新版本只从当前 Fork `walle-2017/codex-usage-win` 的稳定 Release 获取。
+- 最新版本发现通过 `https://github.com/walle-2017/codex-usage-win/releases/latest` 重定向解析稳定 `vX.Y.Z`，不依赖 GitHub 未认证 REST `releases/latest` API。
 - 只下载当前 Fork Release 中的 `codex-usage.exe` 与 `codex-usage.exe.sha256`，SHA256 一致后才进入替换流程。
 - 更新目标固定为 `std::env::current_exe()`，同时支持安装版和位于可写目录中的便携版。
 - 使用本地生成的一次性 PowerShell helper 等待旧进程退出，执行 `.new` / `.old` 替换和失败回滚，然后重启新版本；不会下载或执行 Release 中的 `install.ps1`。
@@ -185,7 +185,7 @@ SHA256 校验
 `scripts/install.ps1` 的在线下载源也固定指向：
 
 ```text
-walle-2017/codex-usage-monitor
+walle-2017/codex-usage-win
 ```
 
 ## 10. 安装模型
@@ -238,7 +238,7 @@ cargo build --release
 
 1. 不得恢复任何自动启动 Codex CLI 的 Token 刷新路径。
 2. 运行时必须保持 Codex-only。
-3. 应用内更新源必须继续固定到 `walle-2017/codex-usage-monitor` 的稳定 Release；保留一次启动时只读检查，不得改为 upstream，也不得增加周期性后台检查。
+3. 应用内更新源必须继续固定到 `walle-2017/codex-usage-win` 的稳定 Release；保留一次启动时只读检查，不得改为 upstream，也不得增加周期性后台检查。
 4. 不得恢复任务栏组件隐藏/显示状态机。
 5. 不得覆盖 Windows system proxy 支持。
 6. 不得破坏 Explorer watchdog、single-instance mutex、实时跨任务栏拖动、DPI-aware 拖动锚点和小任务栏适配。
