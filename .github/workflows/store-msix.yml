@@ -1,0 +1,167 @@
+name: Store MSIX Build
+
+on:
+  push:
+    branches:
+      - feature/msix-store-packaging
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/store-msix.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/icons/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.97.0
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo test
+
+      - name: Clippy
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build release executable
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo build --release --no-default-features --features store
+
+      - name: Build unsigned Store MSIX
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          .\packaging\build-msix.ps1 -OutputDir dist
+
+      - name: Create locally installable test package
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $storePackage = Get-ChildItem dist -Filter "codex-usage-win_*_x64.msix" |
+              Where-Object { $_.Name -notlike "*-test-signed.msix" } |
+              Select-Object -First 1
+          if (-not $storePackage) { throw "Store MSIX was not generated." }
+
+          $testName = $storePackage.BaseName + "-test-signed.msix"
+          $testPackage = Join-Path $storePackage.DirectoryName $testName
+          Copy-Item -LiteralPath $storePackage.FullName -Destination $testPackage -Force
+
+          $signtool = Get-ChildItem `
+              -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" `
+              -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe was not found." }
+
+          $publisher = "CN=2AE5CECF-93C9-4AF7-82E0-23BE2024603E"
+          $cert = New-SelfSignedCertificate `
+              -Type Custom `
+              -Subject $publisher `
+              -KeyAlgorithm RSA `
+              -KeyLength 2048 `
+              -HashAlgorithm SHA256 `
+              -KeyUsage DigitalSignature `
+              -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") `
+              -CertStoreLocation "Cert:\CurrentUser\My" `
+              -NotAfter (Get-Date).AddYears(1)
+
+          $cerPath = Join-Path $storePackage.DirectoryName "codex-usage-win-test.cer"
+          Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+
+          & $signtool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint /s My $testPackage
+          if ($LASTEXITCODE -ne 0) { throw "SignTool failed with exit code $LASTEXITCODE." }
+
+          Copy-Item packaging\install-test.ps1 dist\install-test.ps1 -Force
+
+      - name: Validate MSIX contents and identity
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $makeAppx = Get-ChildItem `
+              -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" `
+              -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+          if (-not $makeAppx) { throw "makeappx.exe was not found." }
+
+          $storePackage = Get-ChildItem dist -Filter "codex-usage-win_*_x64.msix" |
+              Where-Object { $_.Name -notlike "*-test-signed.msix" } |
+              Select-Object -First 1
+          if (-not $storePackage) { throw "Store MSIX was not generated." }
+
+          $verifyDir = Join-Path $env:RUNNER_TEMP "msix-verify"
+          Remove-Item -Recurse -Force $verifyDir -ErrorAction SilentlyContinue
+          & $makeAppx.FullName unpack /p $storePackage.FullName /d $verifyDir /o
+          if ($LASTEXITCODE -ne 0) { throw "MakeAppx unpack validation failed." }
+
+          $manifestText = Get-Content -Raw (Join-Path $verifyDir "AppxManifest.xml")
+          $required = @(
+              'Name="WalleStudio.CodexUsageWin"',
+              'Publisher="CN=2AE5CECF-93C9-4AF7-82E0-23BE2024603E"',
+              'Version="1.0.4.0"',
+              'ProcessorArchitecture="x64"',
+              'Executable="codex-usage-win.exe"',
+              'EntryPoint="windows.fullTrustApplication"',
+              '<rescap:Capability Name="runFullTrust" />'
+          )
+          foreach ($needle in $required) {
+              if (-not $manifestText.Contains($needle)) {
+                  throw "Required manifest value missing: $needle"
+              }
+          }
+
+          if (-not (Test-Path (Join-Path $verifyDir "codex-usage-win.exe"))) {
+              throw "Packaged executable is missing."
+          }
+
+          Add-Type -AssemblyName System.Drawing
+          $expectedAssets = @{
+              "Square44x44Logo.png" = @(44, 44)
+              "StoreLogo.png" = @(50, 50)
+              "Square150x150Logo.png" = @(150, 150)
+          }
+          foreach ($name in $expectedAssets.Keys) {
+              $path = Join-Path $verifyDir ("Assets\" + $name)
+              $image = [System.Drawing.Image]::FromFile($path)
+              try {
+                  $expected = $expectedAssets[$name]
+                  if ($image.Width -ne $expected[0] -or $image.Height -ne $expected[1]) {
+                      throw "$name has invalid dimensions: $($image.Width)x$($image.Height)"
+                  }
+              } finally {
+                  $image.Dispose()
+              }
+          }
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem dist -File | Sort-Object Name
+          $lines = foreach ($file in $files) {
+              $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+              "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Encoding ascii dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
+      - name: Upload MSIX test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-usage-win-msix-1.0.4.0
+          path: |
+            dist/*
+          if-no-files-found: error

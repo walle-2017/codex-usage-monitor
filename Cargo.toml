@@ -4,8 +4,8 @@ version = "1.0.4"
 edition = "2021"
 license = "MIT"
 description = "Codex Usage Win"
-homepage = "https://github.com/walle-2017/codex-usage-monitor"
-repository = "https://github.com/walle-2017/codex-usage-monitor"
+homepage = "https://github.com/walle-2017/codex-usage-win"
+repository = "https://github.com/walle-2017/codex-usage-win"
 
 [package.metadata.winres]
 CompanyName = "Ray"
@@ -15,6 +15,11 @@ OriginalFilename = "codex-usage-win.exe"
 InternalName = "CodexUsageWin"
 Comments = "Derived from Claude Code Usage Monitor under the MIT License"
 LegalCopyright = "Original copyright (C) 2026 Code Zeno Pty Ltd; modifications (C) 2026 Ray"
+
+[features]
+default = ["github-update"]
+github-update = []
+store = []
 
 [dependencies]
 ureq = { version = "2", default-features = false, features = ["native-tls", "json", "proxy-from-env"] }

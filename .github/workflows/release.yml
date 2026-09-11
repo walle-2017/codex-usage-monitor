@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.0
 
       - name: Build release binary
         run: cargo build --release
@@ -31,7 +31,6 @@ jobs:
           Copy-Item target/release/codex-usage-win.exe dist/codex-usage-win.exe
           Copy-Item scripts/install.ps1 dist/install.ps1
           Copy-Item scripts/uninstall.ps1 dist/uninstall.ps1
-
           $hash = (Get-FileHash -Algorithm SHA256 dist/codex-usage-win.exe).Hash.ToLowerInvariant()
           "$hash  codex-usage-win.exe" | Set-Content -Encoding ascii dist/codex-usage-win.exe.sha256
 

@@ -1,0 +1,136 @@
+param(
+    [string]$OutputDir = "dist",
+    [string]$PackageVersion = ""
+)
+
+$ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $repoRoot
+
+if ([string]::IsNullOrWhiteSpace($PackageVersion)) {
+    $cargo = Get-Content -Raw (Join-Path $repoRoot "Cargo.toml")
+    $match = [regex]::Match(
+        $cargo,
+        '(?m)^version\s*=\s*"(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)"'
+    )
+    if (-not $match.Success) {
+        throw "Unable to read package version from Cargo.toml."
+    }
+    $PackageVersion = "{0}.{1}.{2}.0" -f `
+        $match.Groups["major"].Value, `
+        $match.Groups["minor"].Value, `
+        $match.Groups["patch"].Value
+}
+
+if ($PackageVersion -notmatch '^\d+\.\d+\.\d+\.0$') {
+    throw "MSIX version must use four numeric parts and end in .0. Actual: $PackageVersion"
+}
+
+$exePath = Join-Path $repoRoot "target\release\codex-usage-win.exe"
+if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
+    throw "Release executable not found: $exePath. Run 'cargo build --release' first."
+}
+
+$sourceIcon = Join-Path $repoRoot "src\icons\256x256.png"
+if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) {
+    throw "Source icon not found: $sourceIcon"
+}
+
+$makeAppx = Get-ChildItem `
+    -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" `
+    -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1
+
+if (-not $makeAppx) {
+    throw "makeappx.exe was not found in the Windows 10 SDK."
+}
+
+$outputRoot = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
+    $OutputDir
+} else {
+    Join-Path $repoRoot $OutputDir
+}
+New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+
+$workRoot = Join-Path $repoRoot "target\msix"
+$stage = Join-Path $workRoot "stage"
+Remove-Item -Recurse -Force $workRoot -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path (Join-Path $stage "Assets") | Out-Null
+
+Copy-Item -LiteralPath $exePath -Destination (Join-Path $stage "codex-usage-win.exe")
+
+$manifestTemplate = Get-Content -Raw (Join-Path $PSScriptRoot "AppxManifest.xml")
+$manifest = $manifestTemplate.Replace("__PACKAGE_VERSION__", $PackageVersion)
+[System.IO.File]::WriteAllText(
+    (Join-Path $stage "AppxManifest.xml"),
+    $manifest,
+    [System.Text.UTF8Encoding]::new($false)
+)
+
+Add-Type -AssemblyName System.Drawing
+
+function Write-ScaledPng {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][int]$Width,
+        [Parameter(Mandatory = $true)][int]$Height
+    )
+
+    $sourceImage = [System.Drawing.Image]::FromFile($Source)
+    try {
+        $bitmap = New-Object System.Drawing.Bitmap($Width, $Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        try {
+            $bitmap.SetResolution(96, 96)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            try {
+                $graphics.Clear([System.Drawing.Color]::Transparent)
+                $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+                $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+                $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                $graphics.DrawImage(
+                    $sourceImage,
+                    [System.Drawing.Rectangle]::new(0, 0, $Width, $Height)
+                )
+            }
+            finally {
+                $graphics.Dispose()
+            }
+
+            $bitmap.Save($Destination, [System.Drawing.Imaging.ImageFormat]::Png)
+        }
+        finally {
+            $bitmap.Dispose()
+        }
+    }
+    finally {
+        $sourceImage.Dispose()
+    }
+}
+
+$assets = Join-Path $stage "Assets"
+Write-ScaledPng -Source $sourceIcon -Destination (Join-Path $assets "Square44x44Logo.png") -Width 44 -Height 44
+Write-ScaledPng -Source $sourceIcon -Destination (Join-Path $assets "StoreLogo.png") -Width 50 -Height 50
+Write-ScaledPng -Source $sourceIcon -Destination (Join-Path $assets "Square150x150Logo.png") -Width 150 -Height 150
+
+$packageName = "codex-usage-win_{0}_x64.msix" -f $PackageVersion
+$packagePath = Join-Path $outputRoot $packageName
+Remove-Item -Force $packagePath -ErrorAction SilentlyContinue
+
+& $makeAppx.FullName pack /d $stage /p $packagePath /o /h SHA256
+if ($LASTEXITCODE -ne 0) {
+    throw "MakeAppx failed with exit code $LASTEXITCODE."
+}
+
+if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+    throw "MSIX package was not created: $packagePath"
+}
+
+Write-Host "MSIX created: $packagePath"
+Write-Host "Package version: $PackageVersion"
+Write-Host "MakeAppx: $($makeAppx.FullName)"

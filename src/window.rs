@@ -123,7 +123,7 @@ const IDM_APPEARANCE_COMPACT: u16 = 91;
 const IDM_APPEARANCE_MINIMAL: u16 = 92;
 
 const GITHUB_RELEASES_URL: &str =
-    "https://github.com/walle-2017/codex-usage-monitor/releases";
+    "https://github.com/walle-2017/codex-usage-win/releases";
 const WM_DPICHANGED_MSG: u32 = 0x02E0;
 const TRAY_ICON_UPDATE_REPOSITION_SUPPRESS_MS: u64 = 750;
 
@@ -1349,21 +1349,24 @@ pub fn run() {
         // Initial render via UpdateLayeredWindow (for embedded) or InvalidateRect (fallback)
         render_layered();
 
-        let update_success_notified =
-            if let Some(version) = updater::successful_update_version_from_args() {
-                let strings = language.strings();
-                let message = format!("{} v{}", strings.update_success, version);
-                tray_icon::notify_info(
-                    hwnd,
-                    tray_icon::TrayIconKind::Codex,
-                    strings.update_title,
-                    &message,
-                );
-                true
-            } else {
-                false
-            };
-        updater::start_startup_update_check(hwnd, update_success_notified);
+        #[cfg(feature = "github-update")]
+        {
+            let update_success_notified =
+                if let Some(version) = updater::successful_update_version_from_args() {
+                    let strings = language.strings();
+                    let message = format!("{} v{}", strings.update_success, version);
+                    tray_icon::notify_info(
+                        hwnd,
+                        tray_icon::TrayIconKind::Codex,
+                        strings.update_title,
+                        &message,
+                    );
+                    true
+                } else {
+                    false
+                };
+            updater::start_startup_update_check(hwnd, update_success_notified);
+        }
 
         // Poll timer: 15 minutes
         let initial_poll_ms = {
@@ -2637,8 +2640,11 @@ unsafe extern "system" fn wnd_proc(
                     PostQuitMessage(0);
                 }
                 IDM_CHECK_UPDATE => {
-                    diagnose::log("update command requested");
-                    let _ = updater::start_update(hwnd);
+                    #[cfg(feature = "github-update")]
+                    {
+                        diagnose::log("update command requested");
+                        let _ = updater::start_update(hwnd);
+                    }
                 }
                 IDM_OPEN_RELEASES => {
                     open_github_releases(hwnd);
@@ -3107,14 +3113,23 @@ fn show_context_menu(hwnd: HWND) {
             PCWSTR::from_raw(language_label.as_ptr()),
         );
         let _ = AppendMenuW(settings_menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let version_label_text = match available_update_version.as_deref() {
-            Some(latest) => format!("v{} --> v{}", env!("CARGO_PKG_VERSION"), latest),
-            None => format!("v{}", env!("CARGO_PKG_VERSION")),
+        let version_label_text = if cfg!(feature = "github-update") {
+            match available_update_version.as_deref() {
+                Some(latest) => format!("v{} --> v{}", env!("CARGO_PKG_VERSION"), latest),
+                None => format!("v{}", env!("CARGO_PKG_VERSION")),
+            }
+        } else {
+            format!("v{} (Microsoft Store)", env!("CARGO_PKG_VERSION"))
         };
         let version_label = native_interop::wide_str(&version_label_text);
+        let version_flags = if cfg!(feature = "github-update") {
+            MENU_ITEM_FLAGS(0)
+        } else {
+            MF_GRAYED
+        };
         let _ = AppendMenuW(
             settings_menu,
-            MENU_ITEM_FLAGS(0),
+            version_flags,
             IDM_CHECK_UPDATE as usize,
             PCWSTR::from_raw(version_label.as_ptr()),
         );

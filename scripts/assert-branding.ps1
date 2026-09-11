@@ -17,7 +17,7 @@ $Updater = Get-Content -Raw -LiteralPath 'src/updater.rs'
 $Install = Get-Content -Raw -LiteralPath 'scripts/install.ps1'
 $Uninstall = Get-Content -Raw -LiteralPath 'scripts/uninstall.ps1'
 $ReleaseWorkflow = Get-Content -Raw -LiteralPath '.github/workflows/release.yml'
-$SafeBuild = Get-Content -Raw -LiteralPath '.github/workflows/safe-build.yml'
+$CiBuild = Get-Content -Raw -LiteralPath '.github/workflows/ci.yml'
 
 Assert-Contains $Cargo 'name = "codex-usage-win"' 'Cargo package must be named codex-usage-win.'
 Assert-Contains $Cargo 'version = "1.0.4"' 'Branding release must be version 1.0.4.'
@@ -52,8 +52,8 @@ Assert-Contains $Uninstall '$SettingsDirectory = Join-Path $env:APPDATA ''CodexU
 Assert-Contains $ReleaseWorkflow 'RELEASE_ASSET_NAME: codex-usage-win.exe' 'Release workflow asset name must be codex-usage-win.exe.'
 Assert-Contains $ReleaseWorkflow 'target/release/codex-usage-win.exe' 'Release workflow must package the renamed binary.'
 Assert-Contains $ReleaseWorkflow 'dist/codex-usage-win.exe.sha256' 'Release workflow must publish the renamed checksum.'
-Assert-Contains $SafeBuild 'target/release/codex-usage-win.exe' 'Safe build must package the renamed binary.'
-Assert-Contains $SafeBuild 'name: codex-usage-win-safe-windows-x64' 'Safe build artifact must use the new file identity.'
+Assert-Contains $CiBuild 'target/release/codex-usage-win.exe' 'CI build must package the renamed binary.'
+Assert-Contains $CiBuild 'name: codex-usage-win-safe-windows-x64' 'CI build artifact must use the new file identity.'
 
 $LocalizationFiles = Get-ChildItem -LiteralPath 'src/localization' -Filter '*.rs' | Where-Object { $_.Name -ne 'mod.rs' }
 foreach ($File in $LocalizationFiles) {

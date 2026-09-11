@@ -1,141 +1,94 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [English](README.md) | **简体中文**
 
+<p align="center">
+  <img src="docs/assets/icon.png" alt="Codex Usage Win 图标" width="112" height="112">
+</p>
+
 # Codex Usage Win
 
-<img src=".github/codex-usage-icon.png" alt="Codex Usage Win 图标" width="96" height="96">
-
-![运行效果](.github/animation.gif)
-
-一款轻量级 Windows 原生任务栏小组件，专门用于监控 **Codex 用量**。当前 v1.0.3 Fork 已正式收敛为 Codex-only：读取 Codex 自身维护的本地登录凭据，并在任务栏直接显示 5 小时和每周额度的剩余量。
+一款轻量级 Windows 原生 **Codex 用量监控工具**。当前正式版本：**v1.0.4**。
 
 ## 功能
 
-- 显示 Codex **5h** 和 **7d** 剩余额度
-- 显示重置时间/日期及倒计时信息
+- 显示 Codex 5 小时和 7 天剩余额度
+- 显示重置时间/日期
 - 紧凑、极简两种任务栏外观
-- 可分别显示 5h / 7d，用量行至少保留一行
-- 可在剩余额度 10%、20% 或 30% 时提醒，每个重置窗口只提醒一次；同一轮检测中的多个额度提醒会合并为一条简洁 Windows 通知
-- 刷新间隔支持 1 分钟、5 分钟、15 分钟和 1 小时
+- 可配置低额度提醒
+- 可配置刷新间隔
 - 跟随 Windows 明/暗主题
-- 支持简体中文及多种界面语言
-- 支持多显示器任务栏，并支持按住鼠标时实时跨任务栏拖动、DPI-aware 鼠标锚点和 A → B → A 连续拖动
-- 保留 Explorer 重启恢复与单实例保护
-- 未显式配置代理环境变量时，可读取 Windows 当前用户的手动系统代理
-- 保留一个托盘图标用于刷新、设置和退出；任务栏组件在程序运行期间始终显示
-- 软件启动后执行一次仅检查的稳定 Release 更新检测；发现更高版本时通知用户，并支持手动触发 SHA256 校验、回滚和自动重启更新
+- 支持多种界面语言
+- 支持多显示器任务栏和 DPI-aware 拖动
+- Explorer 重启恢复和单实例保护
+- 支持 Windows 手动系统代理
+- GitHub 独立版支持稳定 Release 更新发现
+- Microsoft Store MSIX 版由 Store 管理更新
 
-## 安全行为
+## 安全边界
 
-本 Fork 明确删除了监控程序自动调用 Codex CLI 刷新 Token 的能力。
+程序读取 Codex 已维护的 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json`，**不会自动调用 Codex CLI 刷新 Token**，也不会把 Codex 凭据复制到发布者运营的服务器。
 
-程序从 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json` 读取 Codex 凭据，并通过 HTTPS 请求 Codex 用量接口。如果接口返回 `401` 或 `403`，监控器会显示认证错误并暂停轮询，直到本地凭据来源发生变化。它**不会启动 `codex.exe`、`codex.cmd`、`codex.ps1`，也不会执行 `codex exec`** 来刷新凭据。
+如果 Codex 返回 401/403，请通过官方 Codex CLI / 应用重新登录，再刷新或重启 Codex Usage Win。
 
-登录失效时，请由你自己通过官方 Codex CLI / Codex 应用重新登录，然后刷新或重启 Codex Usage Win。
-
-## 系统要求
-
-- Windows 10 或 Windows 11
-- 已安装并完成身份验证的 Codex CLI 或 Codex 应用
+详见 [隐私策略](PRIVACY.md) 和 [安全策略](SECURITY.md)。
 
 ## 安装
 
-如需按用户安装，请从 [Fork 最新 Release](https://github.com/walle-2017/codex-usage-monitor/releases/latest) 下载 `install.ps1`，然后运行：
+### GitHub Release
+
+从 [最新 Release](https://github.com/walle-2017/codex-usage-win/releases/latest) 下载 `install.ps1`，执行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-安装程序会校验 Release 文件的 SHA256，无需管理员权限，安装到 `%LOCALAPPDATA%\Programs\CodexUsage`，并创建开始菜单、桌面快捷方式和 Windows“已安装的应用”卸载项。
+安装脚本校验 SHA256，并安装到：
 
-如需便携使用，可从同一 Release 下载 `codex-usage-win.exe` 并直接运行。也可以本地构建：
+```text
+%LOCALAPPDATA%\Programs\CodexUsageWin
+```
+
+也可以直接运行便携版 `codex-usage-win.exe`。
+
+### Microsoft Store
+
+仓库包含 Microsoft Store 使用的 MSIX 构建。Store 版禁用 EXE 原地自更新，由 Microsoft Store 管理应用更新。
+
+## 更新
+
+GitHub 独立版每次启动只检查一次最新稳定 Release。存在新版本时，设置菜单版本项显示：
+
+```text
+v当前版本 --> v最新版本
+```
+
+点击后执行带 SHA256 校验和回滚的手动程序内更新；菜单同时提供 **GitHub Releases** 直接入口。
+
+Microsoft Store 版不会执行 GitHub EXE 自更新。
+
+## 诊断
+
+普通启动不写诊断日志。使用 `--diagnose` 启动后，会在程序目录写入 `codex-usage-win.log`；超过 5 MB 后轮转为 `codex-usage-win.log.1`。
+
+## 构建
 
 ```powershell
 cargo build --release
 ```
 
-可执行文件位于 `target\release\codex-usage-win.exe`。
+Store MSIX 打包说明见 [packaging/README.md](packaging/README.md)。
 
-## 卸载
+## 文档
 
-可在 Windows“设置”>“应用”>“已安装的应用”中卸载 **Codex Usage Win**，或运行：
+- [安装](docs/installation.md)
+- [故障排查](docs/troubleshooting.md)
+- [维护基线](docs/MAINTENANCE.md)
+- [隐私策略](PRIVACY.md)
+- [安全策略](SECURITY.md)
+- [变更记录](CHANGELOG.md)
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexUsage\uninstall.ps1"
-```
+## 许可证
 
-普通卸载会保留 `%APPDATA%\CodexUsage\settings.json`。如需彻底删除设置，请增加 `-RemoveSettings`。详情见[安装机制](docs/installation.md)。
-
-## 使用
-
-运行 `codex-usage-win.exe` 或安装后的快捷方式。程序会把组件嵌入所选 Windows 任务栏，同时在通知区域保留一个托盘图标。
-
-- 拖动左侧手柄可调整组件位置。
-- 多显示器环境下，保持按住鼠标并将组件拖入另一块屏幕的任务栏，组件会立即重新挂载；鼠标会继续保持在拖动手柄相同的逻辑抓取位置，并根据目标任务栏 DPI 自动换算，在不同缩放比例的显示器之间继续跟随。
-- 右键任务栏组件或托盘图标，可使用刷新、刷新频率、用量行、额度提醒、外观、开机启动、重置位置、语言、可点击版本号和退出等设置。
-- 任务栏组件在进程运行期间固定保持显示，不再提供隐藏/显示开关。
-
-### 用量与提醒
-
-所有语言下统一使用**剩余额度**语义：百分比文字、进度长度和状态色都基于同一个剩余百分比。
-
-可以同时显示两个额度周期，也可仅显示其中一个。额度提醒可设为剩余 10%、20% 或 30%，并按重置窗口去重；同一轮检测中 5H、7D 同时触发时只显示一条合并通知。
-
-### 外观
-
-当前保留两种任务栏预设：
-
-- **紧凑**：进度条 + 百分比 + 重置时间/日期
-- **极简**：进度条 + 百分比
-
-两种预设均跟随 Windows 明/暗主题。Windows 小任务栏使用单独适配的布局以保证可读性。
-
-## 网络与系统代理
-
-如果已经显式设置 `HTTPS_PROXY`、`HTTP_PROXY` 或 `ALL_PROXY`，HTTP 客户端按正常环境变量规则使用代理。否则，Windows 下会尝试读取当前用户的手动代理：
-
-```text
-HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings
-```
-
-读取 `ProxyEnable` / `ProxyServer`，并只应用到当前进程，不会修改 Windows 代理配置。当前不实现 PAC/WPAD 自动代理发现。
-
-Codex 用量请求会在 TLS 连接中携带 OAuth Bearer Token，因此应只使用可信代理。
-
-## 诊断日志
-
-运行日志改为按需启用。只有使用 `--diagnose` 启动 Codex Usage Win 时，才会在当前 `codex-usage-win.exe` 同目录创建或追加 `codex-usage-win.log`；达到 5 MB 时轮转为 `codex-usage-win.log.1`，只保留当前和上一份日志。普通启动不会创建或写入诊断日志。
-
-日志会记录应用、轮询、代理、任务栏恢复和应用内更新关键事件，但不会记录 access token、refresh token、凭据文件内容或代理密码。详情见[故障排除](docs/troubleshooting.md)。
-
-设置保存在：
-
-```text
-%APPDATA%\CodexUsage\settings.json
-```
-
-当前设置包括任务栏位置/屏幕、轮询频率、语言、外观、可见额度行、提醒阈值及提醒去重状态。
-
-## 隐私与安全
-
-程序读取本地 Codex access token / account id，并仅在查询 ChatGPT Codex 用量接口时用于认证。项目没有独立后端，不收集 Analytics 或 Telemetry，也不会上传项目文件。
-
-监控器不会直接修改 `auth.json`，也不会为了恢复认证而启动 Codex CLI 子进程。
-
-## 版本与应用内更新
-
-当前正式版本为 **1.0.3**。程序菜单显示的 `v1.0.3` 和 Windows EXE 版本元数据都来自同一个包版本源；清理后的首个 Codex-only 安全基线版本为 `v1.0.0`。
-
-软件每次启动后会自动执行一次只读的 Release 更新检查。若发现更高的稳定版本，会先显示一条精简通知，并把**设置**中的版本号显示为 `v当前版本 --> v最新版本`；启动检查本身不会下载或安装更新。点击该版本号后才进入现有手动更新流程。版本发现仍只访问 `walle-2017/codex-usage-monitor` 当前 Fork 的最新稳定 Release，并通过 GitHub Release 重定向完成，不依赖 GitHub 未认证 REST API。
-
-用户点击版本号并确认存在更高版本后，程序会下载 `codex-usage-win.exe` 与 `codex-usage-win.exe.sha256`，完成 SHA256 校验后安全替换当前安装版或便携版程序并自动重启。更新器在替换成功前保留回滚副本，也不会下载或执行 Release 中的 `install.ps1`。不会执行周期性后台更新检查；自动检查仅在每次软件启动后执行一次，并且只通知、不自动下载安装。
-
-## 开源说明
-
-项目采用 MIT License，保留原始 [LICENSE](LICENSE) 和版权声明。
-
-Codex Usage Win 源自 [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor) 以及后续上游工作。当前 Fork 独立维护，与上游维护者或 OpenAI 不存在隶属或背书关系。
-
-Fork 的安全约束和后续同步基线见 [README-FORK.md](README-FORK.md)。
+MIT，详见 [LICENSE](LICENSE)。

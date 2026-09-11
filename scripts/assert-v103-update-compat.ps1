@@ -29,7 +29,7 @@ Assert-Contains $Updater 'UpdateOutcome::ManualUpdateRequired' 'Updater must con
 
 # The UI must explain the rename and always provide a direct Releases entry under the version item.
 Assert-Contains $Window 'const IDM_OPEN_RELEASES' 'Context menu must define a GitHub Releases command.'
-Assert-Contains $Window 'https://github.com/walle-2017/codex-usage-monitor/releases' 'Context menu must target the repository Releases page.'
+Assert-Contains $Window 'https://github.com/walle-2017/codex-usage-win/releases' 'Context menu must target the repository Releases page.'
 Assert-Contains $Window 'ShellExecuteW' 'GitHub Releases command must open in the default browser.'
 Assert-Contains $Window 'ManualUpdateRequired { version }' 'UI must handle the manual-update result explicitly.'
 Assert-Contains $Window 'updater::UpdateError::AssetMissing' 'UI error matching must remain exhaustive for the internal missing-asset error.'
