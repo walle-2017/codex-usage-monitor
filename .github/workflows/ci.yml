@@ -93,3 +93,4 @@ jobs:
             dist/codex-usage-win.exe
             dist/codex-usage-win.exe.sha256
           if-no-files-found: error
+          retention-days: 14
