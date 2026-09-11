@@ -150,10 +150,6 @@ const TBM_SETRANGE_MSG: u32 = WM_USER + 6;
 const TB_ENDTRACK_CODE: u16 = 8;
 /// Keep the visible panel border at one physical pixel even at high DPI.
 const PANEL_BORDER_WIDTH_PX: i32 = 1;
-/// Frosted-glass tint strength. The configured RGBA alpha remains the actual
-/// window opacity; these values only tint the captured/blurred backdrop RGB.
-const FROSTED_GLASS_FILL_TINT: u8 = 56;
-const FROSTED_GLASS_BORDER_TINT: u8 = 96;
 
 const GITHUB_RELEASES_URL: &str =
     "https://github.com/walle-2017/codex-usage-win/releases";
@@ -3171,7 +3167,7 @@ fn apply_style_blur(theme_is_dark: bool, radius: u8) {
     {
         let mut state = lock_state();
         if let Some(s) = state.as_mut() {
-            s.styles.active_mut(theme_is_dark).panel_blur_radius = radius.min(20);
+            s.styles.active_mut(theme_is_dark).panel_blur_radius = u8::from(radius > 0);
         }
     }
     render_layered();
@@ -3417,8 +3413,10 @@ fn update_blur_editor_label(editor: BlurEditorState, radius: u8, language: Langu
         } else {
             "Off".to_string()
         }
+    } else if language == LanguageId::SimplifiedChinese {
+        "磨砂玻璃".to_string()
     } else {
-        format!("{} px", radius)
+        "Frosted glass".to_string()
     };
     unsafe {
         let text = native_interop::wide_str(&text);
@@ -3506,9 +3504,9 @@ fn open_blur_editor(owner: HWND) {
     unsafe {
         let class_name = native_interop::wide_str("CodexUsageBlurEditor");
         let title = native_interop::wide_str(if language == LanguageId::SimplifiedChinese {
-            "样式 - 背景模糊"
+            "样式 - 磨砂玻璃"
         } else {
-            "Style - Background blur"
+            "Style - Frosted glass"
         });
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
@@ -3529,7 +3527,7 @@ fn open_blur_editor(owner: HWND) {
             return;
         };
 
-        let Some(slider) = create_editor_trackbar(hwnd, 18, 20, 240, 32, 20, radius as i32)
+        let Some(slider) = create_editor_trackbar(hwnd, 18, 20, 240, 32, 1, i32::from(radius > 0))
         else {
             let _ = DestroyWindow(hwnd);
             return;
@@ -3539,9 +3537,9 @@ fn open_blur_editor(owner: HWND) {
             return;
         };
         let hint = if language == LanguageId::SimplifiedChinese {
-            "0 为关闭；拖动时实时预览，操作结束自动保存"
+            "关闭 / 磨砂玻璃；切换时实时预览并自动保存"
         } else {
-            "0 disables blur; live preview while dragging"
+            "Off / Frosted glass; live preview and auto-save"
         };
         let _ = create_editor_static(hwnd, hint, 18, 65, 290, 22);
 
@@ -3881,9 +3879,15 @@ fn show_context_menu(hwnd: HWND) {
             );
         }
         let blur_text = if language == LanguageId::SimplifiedChinese {
-            format!("背景模糊... ({} px)", active_blur_radius)
+            format!(
+                "磨砂玻璃... ({})",
+                if active_blur_radius > 0 { "开启" } else { "关闭" }
+            )
         } else {
-            format!("Background blur... ({} px)", active_blur_radius)
+            format!(
+                "Frosted glass... ({})",
+                if active_blur_radius > 0 { "On" } else { "Off" }
+            )
         };
         let blur_label = native_interop::wide_str(&blur_text);
         let _ = AppendMenuW(
