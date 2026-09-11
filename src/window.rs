@@ -1149,6 +1149,18 @@ fn current_appearance_preset() -> AppearancePreset {
         .unwrap_or_default()
 }
 
+fn current_theme_style() -> ThemeStyle {
+    let state = lock_state();
+    state
+        .as_ref()
+        .map(|s| s.styles.active(s.is_dark).clone())
+        .unwrap_or_else(ThemeStyle::dark_default)
+}
+
+fn current_style_color(target: StyleColorTarget) -> Color {
+    current_theme_style().color(target)
+}
+
 fn row_bar_segment_count(preset: AppearancePreset) -> i32 {
     match preset {
         AppearancePreset::Compact => 8,
@@ -1206,22 +1218,14 @@ fn total_widget_width() -> i32 {
     total_widget_width_for_preset(language, preset)
 }
 
-fn quota_bar_color(_is_dark: bool, displayed_percent: f64, _language: LanguageId) -> Color {
+fn quota_bar_color(displayed_percent: f64) -> Color {
     let remaining = displayed_percent.clamp(0.0, 100.0);
     if remaining > 50.0 {
-        Color::from_hex("#55A8F2")
+        current_style_color(StyleColorTarget::ProgressHigh)
     } else if remaining > 20.0 {
-        Color::from_hex("#E6B84A")
+        current_style_color(StyleColorTarget::ProgressMedium)
     } else {
-        Color::from_hex("#D95C5C")
-    }
-}
-
-fn stable_percentage_text_color(is_dark: bool) -> Color {
-    if is_dark {
-        Color::from_hex("#FFFFFF")
-    } else {
-        Color::from_hex("#202020")
+        current_style_color(StyleColorTarget::ProgressLow)
     }
 }
 pub fn run() {
@@ -1946,12 +1950,14 @@ fn schedule_countdown_timer() {
 }
 
 fn check_theme_change() {
-    let new_dark = theme::is_dark_mode();
+    let system_dark = theme::is_dark_mode();
     let changed = {
         let mut state = lock_state();
         if let Some(s) = state.as_mut() {
-            if s.is_dark != new_dark {
-                s.is_dark = new_dark;
+            if s.theme_mode != ThemeMode::System {
+                false
+            } else if s.is_dark != system_dark {
+                s.is_dark = system_dark;
                 true
             } else {
                 false
@@ -1961,6 +1967,7 @@ fn check_theme_change() {
         }
     };
     if changed {
+        close_style_editors();
         render_layered();
     }
 }
