@@ -749,6 +749,39 @@ fn attach_to_taskbar(hwnd: HWND, requested_index: usize) -> bool {
     true
 }
 
+fn select_taskbar_for_popup(requested_index: usize) -> bool {
+    let taskbars = native_interop::find_taskbars();
+    if taskbars.is_empty() {
+        return false;
+    }
+    let index = requested_index.min(taskbars.len().saturating_sub(1));
+    let taskbar = taskbars[index];
+
+    let old_hook = {
+        let mut state = lock_state();
+        state.as_mut().and_then(|s| s.win_event_hook.take())
+    };
+    if let Some(hook) = old_hook {
+        native_interop::unhook_win_event(hook);
+    }
+
+    let tray_notify = native_interop::find_child_window(taskbar.hwnd, "TrayNotifyWnd");
+    let hook = tray_notify.and_then(|tray_hwnd| {
+        let thread_id = native_interop::get_window_thread_id(tray_hwnd);
+        native_interop::set_tray_event_hook(thread_id, on_tray_location_changed)
+    });
+
+    let mut state = lock_state();
+    if let Some(s) = state.as_mut() {
+        s.taskbar_hwnd = Some(taskbar.hwnd);
+        s.tray_notify_hwnd = tray_notify;
+        s.win_event_hook = hook;
+        s.taskbar_index = index;
+        s.embedded = false;
+    }
+    true
+}
+
 fn taskbar_at_point(pt: POINT) -> Option<(usize, native_interop::TaskbarWindow)> {
     native_interop::find_taskbars()
         .into_iter()
@@ -2580,9 +2613,12 @@ unsafe extern "system" fn wnd_proc(
                 let mut pt = POINT::default();
                 let _ = GetCursorPos(&mut pt);
 
-                let current_taskbar_index = {
+                let (current_taskbar_index, acrylic_active) = {
                     let state = lock_state();
-                    state.as_ref().map(|s| s.taskbar_index)
+                    state
+                        .as_ref()
+                        .map(|s| (Some(s.taskbar_index), s.native_acrylic_active))
+                        .unwrap_or((None, false))
                 };
                 let mut switched_taskbar = false;
 
@@ -2603,7 +2639,12 @@ unsafe extern "system" fn wnd_proc(
                             }
                             let _ = ReleaseCapture();
 
-                            if attach_to_taskbar(hwnd, target_index) {
+                            let switched = if acrylic_active {
+                                select_taskbar_for_popup(target_index)
+                            } else {
+                                attach_to_taskbar(hwnd, target_index)
+                            };
+                            if switched {
                                 {
                                     let mut state = lock_state();
                                     if let Some(s) = state.as_mut() {
@@ -2628,12 +2669,13 @@ unsafe extern "system" fn wnd_proc(
                 let drag_context = {
                     let state = lock_state();
                     state.as_ref().and_then(|s| {
-                        s.taskbar_hwnd
-                            .map(|taskbar_hwnd| (taskbar_hwnd, s.drag_anchor_logical_x))
+                        s.taskbar_hwnd.map(|taskbar_hwnd| {
+                            (taskbar_hwnd, s.drag_anchor_logical_x, s.embedded)
+                        })
                     })
                 };
 
-                if let Some((taskbar_hwnd, anchor_logical_x)) = drag_context {
+                if let Some((taskbar_hwnd, anchor_logical_x, embedded)) = drag_context {
                     if let Some(taskbar_rect) = native_interop::get_taskbar_rect(taskbar_hwnd) {
                         let dpi = GetDpiForWindow(taskbar_hwnd);
                         if dpi > 0 {
@@ -2664,15 +2706,20 @@ unsafe extern "system" fn wnd_proc(
                                 changed,
                             )
                         };
-                        let y = compute_anchor_y(taskbar_rect.top, taskbar_height, widget_height)
-                            - taskbar_rect.top;
+                        let anchor_y =
+                            compute_anchor_y(taskbar_rect.top, taskbar_height, widget_height);
+                        let (window_x, window_y) = if embedded {
+                            (drag_left, anchor_y - taskbar_rect.top)
+                        } else {
+                            (taskbar_rect.left + drag_left, anchor_y)
+                        };
 
-                        // Pointer alignment is authoritative while dragging. The taskbar
-                        // clips any temporary overhang; docked bounds are applied on button-up.
+                        // Embedded mode uses taskbar-client coordinates; Acrylic popup
+                        // mode uses absolute screen coordinates.
                         native_interop::move_window(
                             hwnd,
-                            drag_left,
-                            y,
+                            window_x,
+                            window_y,
                             widget_width,
                             widget_height,
                         );
