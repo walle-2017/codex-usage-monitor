@@ -3575,8 +3575,10 @@ mod tests {
 
     #[test]
     fn explicit_minimal_appearance_round_trips() {
-        let mut settings = SettingsFile::default();
-        settings.appearance_preset = AppearancePreset::Minimal;
+        let settings = SettingsFile {
+            appearance_preset: AppearancePreset::Minimal,
+            ..Default::default()
+        };
         let json = serde_json::to_string(&settings).unwrap();
         let parsed: SettingsFile = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.appearance_preset, AppearancePreset::Minimal);
