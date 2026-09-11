@@ -53,7 +53,7 @@ Assert-Contains $ReleaseWorkflow 'RELEASE_ASSET_NAME: codex-usage-win.exe' 'Rele
 Assert-Contains $ReleaseWorkflow 'target/release/codex-usage-win.exe' 'Release workflow must package the renamed binary.'
 Assert-Contains $ReleaseWorkflow 'dist/codex-usage-win.exe.sha256' 'Release workflow must publish the renamed checksum.'
 Assert-Contains $CiBuild 'target/release/codex-usage-win.exe' 'CI build must package the renamed binary.'
-Assert-Contains $CiBuild 'name: codex-usage-win-safe-windows-x64' 'CI build artifact must use the new file identity.'
+Assert-Contains $CiBuild 'name: codex-usage-win-windows-x64' 'CI build artifact must use the new file identity.'
 
 $LocalizationFiles = Get-ChildItem -LiteralPath 'src/localization' -Filter '*.rs' | Where-Object { $_.Name -ne 'mod.rs' }
 foreach ($File in $LocalizationFiles) {
