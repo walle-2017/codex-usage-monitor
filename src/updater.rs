@@ -48,6 +48,7 @@ pub(crate) enum UpdateError {
     CheckFailed,
     InvalidRelease,
     DownloadFailed,
+    AssetMissing,
     InvalidChecksum,
     ChecksumMismatch,
     TargetNotWritable,
@@ -57,6 +58,7 @@ pub(crate) enum UpdateError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UpdateUiResult {
     Current { version: String },
+    ManualUpdateRequired { version: String },
     Failed { error: UpdateError, detail: String },
     ReadyToRestart,
 }
@@ -117,6 +119,7 @@ struct UpdatePackage {
 
 enum UpdateOutcome {
     Current { version: String },
+    ManualUpdateRequired { version: String },
     Ready(UpdatePackage),
 }
 
@@ -174,6 +177,7 @@ fn visible_error_detail(error: &UpdateError) -> String {
         UpdateError::CheckFailed => "GitHub Release request failed".to_string(),
         UpdateError::InvalidRelease => "Release metadata is invalid".to_string(),
         UpdateError::DownloadFailed => "Release asset download failed".to_string(),
+        UpdateError::AssetMissing => "Release asset name changed".to_string(),
         UpdateError::InvalidChecksum => "Checksum file is invalid".to_string(),
         UpdateError::ChecksumMismatch => "SHA256 mismatch".to_string(),
         UpdateError::TargetNotWritable => "Executable directory is not writable".to_string(),
@@ -347,6 +351,9 @@ pub(crate) fn start_update(hwnd: HWND) -> bool {
     std::thread::spawn(move || {
         let ui_result = match prepare_update(hwnd_raw) {
             Ok(UpdateOutcome::Current { version }) => UpdateUiResult::Current { version },
+            Ok(UpdateOutcome::ManualUpdateRequired { version }) => {
+                UpdateUiResult::ManualUpdateRequired { version }
+            }
             Ok(UpdateOutcome::Ready(package)) => match launch_prepared_update(package) {
                 Ok(()) => UpdateUiResult::ReadyToRestart,
                 Err(error) => {
@@ -534,8 +541,18 @@ fn prepare_update(hwnd_raw: isize) -> Result<UpdateOutcome, UpdateError> {
         UpdateError::DownloadFailed
     })?;
 
+    let update_version = update.version.clone();
     match prepare_downloaded_package(&agent, update, staging_dir.clone()) {
         Ok(package) => Ok(UpdateOutcome::Ready(package)),
+        Err(UpdateError::AssetMissing) => {
+            let _ = fs::remove_dir_all(staging_dir);
+            diagnose::log(format!(
+                "updater: expected Release asset missing for v{update_version}; manual update required"
+            ));
+            Ok(UpdateOutcome::ManualUpdateRequired {
+                version: update_version,
+            })
+        }
         Err(error) => {
             let _ = fs::remove_dir_all(staging_dir);
             Err(error)
@@ -608,6 +625,13 @@ fn download_to(agent: &ureq::Agent, url: &str, destination: &Path) -> Result<(),
         return Err(UpdateError::InvalidRelease);
     }
     let response = request_builder(agent, url).call().map_err(|error| {
+        if matches!(&error, ureq::Error::Status(404, _)) {
+            diagnose::log(format!(
+                "updater: expected Release asset returned HTTP 404 url={}",
+                safe_detail(url)
+            ));
+            return UpdateError::AssetMissing;
+        }
         let detail = format!(
             "Release asset download failed: {}",
             ureq_error_detail(error)
