@@ -209,28 +209,66 @@ pub fn colorref(r: u8, g: u8, b: u8) -> u32 {
 }
 
 /// Color helper
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+    pub a: u8,
 }
 
 impl Color {
     #[allow(dead_code)]
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
-        Self { r, g, b }
+        Self { r, g, b, a: 255 }
+    }
+
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    pub fn try_from_hex(hex: &str) -> Option<Self> {
+        let hex = hex.trim().trim_start_matches('#');
+        if hex.len() != 6 && hex.len() != 8 {
+            return None;
+        }
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        let a = if hex.len() == 8 {
+            u8::from_str_radix(&hex[6..8], 16).ok()?
+        } else {
+            255
+        };
+        Some(Self { r, g, b, a })
     }
 
     pub fn from_hex(hex: &str) -> Self {
-        let hex = hex.trim_start_matches('#');
-        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
-        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
-        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
-        Self { r, g, b }
+        Self::try_from_hex(hex).unwrap_or(Self::rgba(0, 0, 0, 255))
+    }
+
+    pub fn to_hex_rgba(self) -> String {
+        format!("#{:02X}{:02X}{:02X}{:02X}", self.r, self.g, self.b, self.a)
     }
 
     pub fn to_colorref(self) -> u32 {
         colorref(self.r, self.g, self.b)
+    }
+
+    pub fn blend_over(self, background: Self) -> Self {
+        if self.a == 255 {
+            return Self::rgba(self.r, self.g, self.b, 255);
+        }
+        let alpha = self.a as u16;
+        let inv = 255u16 - alpha;
+        let blend = |fg: u8, bg: u8| -> u8 {
+            ((fg as u16 * alpha + bg as u16 * inv + 127) / 255) as u8
+        };
+        Self::rgba(
+            blend(self.r, background.r),
+            blend(self.g, background.g),
+            blend(self.b, background.b),
+            255,
+        )
     }
 }
