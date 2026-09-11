@@ -49,6 +49,14 @@ if ($windowProduction -notmatch 'apply_style_color\(' -or $windowProduction -not
 if ($windowProduction -notmatch 'render_layered\(\);[\s\S]{0,200}TB_ENDTRACK_CODE') {
     Write-Warning 'Live-preview implementation shape changed; inspect manually if this warning appears.'
 }
+if ($windowProduction -notmatch 'tint_frosted_panel_bitmap' -or
+    $windowProduction -notmatch 'premultiplied_rgb_pixel\(panel_pixels\[idx\],\s*panel_color\.a\)') {
+    throw 'Frosted-glass blur must preserve configured panel alpha instead of flattening blur to opaque.'
+}
+if ($windowProduction -notmatch 'FROSTED_GLASS_FILL_TINT' -or
+    $windowProduction -notmatch 'FROSTED_GLASS_BORDER_TINT') {
+    throw 'Frosted-glass blur must lightly tint the blurred backdrop.'
+}
 if ($windowProduction -notmatch 'reset_active\(s\.is_dark\)') {
     throw 'Reset Style must only reset the active theme.'
 }
