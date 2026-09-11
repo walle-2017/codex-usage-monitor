@@ -1,7 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use windows::core::PCWSTR;
+use windows::core::{PCSTR, PCWSTR};
 use windows::Win32::Foundation::{BOOL, FILETIME, HWND, LPARAM, RECT, SYSTEMTIME};
+use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_GETTASKBARPOS, APPBARDATA};
@@ -11,6 +12,28 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 pub const WS_POPUP_STYLE: u32 = 0x80000000;
 pub const WS_CHILD_STYLE: u32 = 0x40000000;
 pub const WS_CLIPSIBLINGS_STYLE: u32 = 0x04000000;
+
+const WCA_ACCENT_POLICY: i32 = 19;
+const ACCENT_DISABLED: i32 = 0;
+const ACCENT_ENABLE_ACRYLICBLURBEHIND: i32 = 4;
+
+#[repr(C)]
+struct AccentPolicy {
+    accent_state: i32,
+    accent_flags: u32,
+    gradient_color: u32,
+    animation_id: i32,
+}
+
+#[repr(C)]
+struct WindowCompositionAttribData {
+    attrib: i32,
+    pv_data: *mut std::ffi::c_void,
+    cb_data: u32,
+}
+
+type SetWindowCompositionAttributeFn =
+    unsafe extern "system" fn(HWND, *const WindowCompositionAttribData) -> BOOL;
 
 // Win event constants
 pub const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
@@ -153,6 +176,76 @@ pub fn embed_in_taskbar(hwnd: HWND, taskbar_hwnd: HWND) {
         let _ = SetWindowLongW(hwnd, GWL_STYLE, new_style as i32);
 
         let _ = SetParent(hwnd, taskbar_hwnd);
+    }
+}
+
+/// Toggle WS_EX_LAYERED without changing the other extended window styles.
+pub fn set_layered_style(hwnd: HWND, enabled: bool) {
+    unsafe {
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let next = if enabled {
+            ex_style | WS_EX_LAYERED.0 as i32
+        } else {
+            ex_style & !(WS_EX_LAYERED.0 as i32)
+        };
+        if next != ex_style {
+            let _ = SetWindowLongW(hwnd, GWL_EXSTYLE, next);
+            let _ = SetWindowPos(
+                hwnd,
+                HWND::default(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+    }
+}
+
+/// Apply native DWM acrylic to a window. SetWindowCompositionAttribute is
+/// dynamically resolved because Microsoft doesn't provide a normal import
+/// library for it.
+pub fn set_native_acrylic(hwnd: HWND, color: Option<Color>) -> bool {
+    unsafe {
+        let user32_name = wide_str("user32.dll");
+        let Ok(user32) = GetModuleHandleW(PCWSTR::from_raw(user32_name.as_ptr())) else {
+            return false;
+        };
+        let proc_name = b"SetWindowCompositionAttribute\0";
+        let Some(proc) = GetProcAddress(user32, PCSTR::from_raw(proc_name.as_ptr())) else {
+            return false;
+        };
+        let set_attribute: SetWindowCompositionAttributeFn = std::mem::transmute(proc);
+
+        let mut policy = if let Some(color) = color {
+            // Acrylic treats a zero tint alpha as disabled. Keep a minimum of 1
+            // so an almost-clear tint can still request backdrop blur.
+            let alpha = color.a.max(1) as u32;
+            let gradient_color = (alpha << 24)
+                | ((color.b as u32) << 16)
+                | ((color.g as u32) << 8)
+                | color.r as u32;
+            AccentPolicy {
+                accent_state: ACCENT_ENABLE_ACRYLICBLURBEHIND,
+                accent_flags: 0,
+                gradient_color,
+                animation_id: 0,
+            }
+        } else {
+            AccentPolicy {
+                accent_state: ACCENT_DISABLED,
+                accent_flags: 0,
+                gradient_color: 0,
+                animation_id: 0,
+            }
+        };
+        let data = WindowCompositionAttribData {
+            attrib: WCA_ACCENT_POLICY,
+            pv_data: (&mut policy as *mut AccentPolicy).cast(),
+            cb_data: std::mem::size_of::<AccentPolicy>() as u32,
+        };
+        set_attribute(hwnd, &data).as_bool()
     }
 }
 
