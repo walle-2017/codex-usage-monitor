@@ -360,6 +360,10 @@ struct SettingsFile {
     language: Option<String>,
     #[serde(default)]
     appearance_preset: AppearancePreset,
+    #[serde(default)]
+    theme_mode: ThemeMode,
+    #[serde(default)]
+    styles: StyleSettings,
     #[serde(default = "default_show_usage_window")]
     show_session_window: bool,
     #[serde(default = "default_show_usage_window")]
@@ -378,6 +382,8 @@ impl Default for SettingsFile {
             poll_interval_ms: default_poll_interval(),
             language: None,
             appearance_preset: AppearancePreset::Compact,
+            theme_mode: ThemeMode::System,
+            styles: StyleSettings::default(),
             show_session_window: true,
             show_weekly_window: true,
             alert_threshold_percent: 0,
@@ -436,6 +442,7 @@ fn normalize_settings(mut settings: SettingsFile) -> SettingsFile {
     }
     settings.notified_quota_windows.sort();
     settings.notified_quota_windows.dedup();
+    settings.styles.normalize();
     settings
 }
 
@@ -460,6 +467,8 @@ fn save_state_settings() {
                 .language_override
                 .map(|language| language.code().to_string()),
             appearance_preset: s.appearance_preset,
+            theme_mode: s.theme_mode,
+            styles: s.styles.clone(),
             show_session_window: s.show_session_window,
             show_weekly_window: s.show_weekly_window,
             alert_threshold_percent: s.alert_threshold_percent,
@@ -1218,6 +1227,7 @@ fn stable_percentage_text_color(is_dark: bool) -> Color {
 pub fn run() {
     // Enable Per-Monitor DPI Awareness V2 for crisp rendering at any scale factor
     unsafe {
+        InitCommonControls();
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         CURRENT_DPI.store(GetDpiForSystem(), Ordering::Relaxed);
     }
@@ -1326,7 +1336,12 @@ pub fn run() {
 
         diagnose::log(format!("main window created hwnd={:?}", hwnd));
 
-        let is_dark = theme::is_dark_mode();
+        let system_is_dark = theme::is_dark_mode();
+        let is_dark = match settings.theme_mode {
+            ThemeMode::System => system_is_dark,
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+        };
         let mut embedded = false;
 
         {
@@ -1341,6 +1356,8 @@ pub fn run() {
                 language_override,
                 language,
                 appearance_preset: settings.appearance_preset,
+                theme_mode: settings.theme_mode,
+                styles: settings.styles.clone(),
                 small_taskbar_mode: false,
                 small_show_weekly: false,
                 codex_session_percent: 0.0,
