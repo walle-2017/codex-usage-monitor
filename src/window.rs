@@ -1573,7 +1573,10 @@ fn render_layered() {
         // the configured panel alpha reaches zero. Capture only when blur itself
         // needs a source image. Plain RGBA transparency is handled by the final
         // per-pixel alpha pass below.
-        let captured_for_blur = if style.panel_blur_radius > 0 {
+        let panel_background = style.color(StyleColorTarget::PanelBackground);
+        let panel_border = style.color(StyleColorTarget::PanelBorder);
+        let panel_fully_transparent = panel_background.a == 0 && panel_border.a == 0;
+        let captured_for_blur = if style.panel_blur_radius > 0 && !panel_fully_transparent {
             taskbar_hwnd
                 .map(|taskbar| capture_taskbar_background(hwnd, taskbar, mem_dc, width, height))
                 .unwrap_or(false)
