@@ -49,13 +49,22 @@ if ($windowProduction -notmatch 'apply_style_color\(' -or $windowProduction -not
 if ($windowProduction -notmatch 'render_layered\(\);[\s\S]{0,200}TB_ENDTRACK_CODE') {
     Write-Warning 'Live-preview implementation shape changed; inspect manually if this warning appears.'
 }
-if ($windowProduction -notmatch 'tint_frosted_panel_bitmap' -or
-    $windowProduction -notmatch 'premultiplied_rgb_pixel\(panel_pixels\[idx\],\s*panel_color\.a\)') {
-    throw 'Frosted-glass blur must preserve configured panel alpha instead of flattening blur to opaque.'
+if ($native -notmatch 'set_native_acrylic' -or
+    $native -notmatch 'ACCENT_ENABLE_ACRYLICBLURBEHIND' -or
+    $native -notmatch 'SetWindowCompositionAttribute') {
+    throw 'Frosted glass must use native DWM acrylic composition.'
 }
-if ($windowProduction -notmatch 'FROSTED_GLASS_FILL_TINT' -or
-    $windowProduction -notmatch 'FROSTED_GLASS_BORDER_TINT') {
-    throw 'Frosted-glass blur must lightly tint the blurred backdrop.'
+if ($windowProduction -notmatch 'set_layered_style\(hwnd, false\)' -or
+    $windowProduction -notmatch 'native_acrylic_active') {
+    throw 'Acrylic rendering must leave UpdateLayeredWindow mode and use WM_PAINT foreground rendering.'
+}
+if ($windowProduction -match 'capture_taskbar_background' -or
+    $windowProduction -match 'box_blur_bitmap' -or
+    $windowProduction -match 'tint_frosted_panel_bitmap') {
+    throw 'Taskbar screenshot/software blur must not be used for frosted glass.'
+}
+if ($windowProduction -notmatch '"磨砂玻璃"' -or $windowProduction -notmatch '"Frosted glass"') {
+    throw 'Frosted-glass UI labels are missing.'
 }
 if ($windowProduction -notmatch 'reset_active\(s\.is_dark\)') {
     throw 'Reset Style must only reset the active theme.'
