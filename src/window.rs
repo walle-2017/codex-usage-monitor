@@ -3122,6 +3122,452 @@ unsafe extern "system" fn wnd_proc(
     }
 }
 
+
+fn style_color_target_label(target: StyleColorTarget, language: LanguageId) -> &'static str {
+    let zh = language == LanguageId::SimplifiedChinese;
+    match target {
+        StyleColorTarget::PanelBackground => if zh { "背景颜色" } else { "Background color" },
+        StyleColorTarget::PanelBorder => if zh { "边框颜色" } else { "Border color" },
+        StyleColorTarget::QuotaType => if zh { "额度类型" } else { "Quota type" },
+        StyleColorTarget::Remaining => if zh { "剩余额度" } else { "Remaining quota" },
+        StyleColorTarget::ResetTime => if zh { "重置时间" } else { "Reset time" },
+        StyleColorTarget::Error => if zh { "异常状态" } else { "Error state" },
+        StyleColorTarget::ProgressHigh => if zh { "充足额度颜色" } else { "High quota color" },
+        StyleColorTarget::ProgressMedium => if zh { "中等额度颜色" } else { "Medium quota color" },
+        StyleColorTarget::ProgressLow => if zh { "低额度颜色" } else { "Low quota color" },
+        StyleColorTarget::ProgressConsumed => if zh { "已消耗部分颜色" } else { "Consumed color" },
+        StyleColorTarget::DragHandle => if zh { "拖拽点颜色" } else { "Drag handle color" },
+    }
+}
+
+fn close_style_editors() {
+    let color_hwnd = {
+        let state = COLOR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        state.as_ref().map(|s| s.hwnd.to_hwnd())
+    };
+    let blur_hwnd = {
+        let state = BLUR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        state.as_ref().map(|s| s.hwnd.to_hwnd())
+    };
+    if color_hwnd.is_some() || blur_hwnd.is_some() {
+        save_state_settings();
+    }
+    unsafe {
+        if let Some(hwnd) = color_hwnd {
+            let _ = DestroyWindow(hwnd);
+        }
+        if let Some(hwnd) = blur_hwnd {
+            let _ = DestroyWindow(hwnd);
+        }
+    }
+}
+
+fn apply_style_color(theme_is_dark: bool, target: StyleColorTarget, color: Color) {
+    {
+        let mut state = lock_state();
+        if let Some(s) = state.as_mut() {
+            s.styles.active_mut(theme_is_dark).set_color(target, color);
+        }
+    }
+    render_layered();
+}
+
+fn apply_style_blur(theme_is_dark: bool, radius: u8) {
+    {
+        let mut state = lock_state();
+        if let Some(s) = state.as_mut() {
+            s.styles.active_mut(theme_is_dark).panel_blur_radius = radius.min(20);
+        }
+    }
+    render_layered();
+}
+
+unsafe fn create_editor_static(
+    parent: HWND,
+    text: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Option<HWND> {
+    let class = native_interop::wide_str("STATIC");
+    let text = native_interop::wide_str(text);
+    CreateWindowExW(
+        WINDOW_EX_STYLE(0),
+        PCWSTR::from_raw(class.as_ptr()),
+        PCWSTR::from_raw(text.as_ptr()),
+        WS_CHILD | WS_VISIBLE,
+        x,
+        y,
+        width,
+        height,
+        parent,
+        HMENU::default(),
+        GetModuleHandleW(PCWSTR::null()).ok()?,
+        None,
+    )
+    .ok()
+}
+
+unsafe fn create_editor_trackbar(
+    parent: HWND,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    max_value: i32,
+    value: i32,
+) -> Option<HWND> {
+    let class = native_interop::wide_str("msctls_trackbar32");
+    let title = native_interop::wide_str("");
+    let hwnd = CreateWindowExW(
+        WINDOW_EX_STYLE(0),
+        PCWSTR::from_raw(class.as_ptr()),
+        PCWSTR::from_raw(title.as_ptr()),
+        WS_CHILD | WS_VISIBLE,
+        x,
+        y,
+        width,
+        height,
+        parent,
+        HMENU::default(),
+        GetModuleHandleW(PCWSTR::null()).ok()?,
+        None,
+    )
+    .ok()?;
+    let range = ((max_value as u32) << 16) as isize;
+    let _ = SendMessageW(hwnd, TBM_SETRANGE_MSG, WPARAM(1), LPARAM(range));
+    let _ = SendMessageW(
+        hwnd,
+        TBM_SETPOS_MSG,
+        WPARAM(1),
+        LPARAM(value.clamp(0, max_value) as isize),
+    );
+    Some(hwnd)
+}
+
+fn update_color_editor_labels(editor: ColorEditorState, color: Color) {
+    let values = [color.r, color.g, color.b, color.a];
+    unsafe {
+        for (label, value) in editor.value_labels.iter().zip(values) {
+            let text = native_interop::wide_str(&value.to_string());
+            let _ = SetWindowTextW(label.to_hwnd(), PCWSTR::from_raw(text.as_ptr()));
+        }
+        let hex = native_interop::wide_str(&color.to_hex_rgba());
+        let _ = SetWindowTextW(editor.hex_label.to_hwnd(), PCWSTR::from_raw(hex.as_ptr()));
+    }
+}
+
+unsafe fn color_editor_value(editor: &ColorEditorState) -> Color {
+    let values = editor.sliders.map(|slider| {
+        SendMessageW(slider.to_hwnd(), TBM_GETPOS_MSG, WPARAM(0), LPARAM(0)).0 as u8
+    });
+    Color::rgba(values[0], values[1], values[2], values[3])
+}
+
+unsafe extern "system" fn color_editor_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_HSCROLL => {
+            let editor = {
+                let state = COLOR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+                state.as_ref().copied().filter(|s| s.hwnd.to_hwnd() == hwnd)
+            };
+            if let Some(editor) = editor {
+                let color = color_editor_value(&editor);
+                update_color_editor_labels(editor, color);
+                apply_style_color(editor.theme_is_dark, editor.target, color);
+                let code = (wparam.0 & 0xFFFF) as u16;
+                if code == TB_ENDTRACK_CODE {
+                    save_state_settings();
+                }
+            }
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            save_state_settings();
+            let _ = DestroyWindow(hwnd);
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            let mut state = COLOR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+            if state.as_ref().map(|s| s.hwnd.to_hwnd()) == Some(hwnd) {
+                *state = None;
+            }
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+fn register_color_editor_class() {
+    unsafe {
+        let class_name = native_interop::wide_str("CodexUsageColorEditor");
+        let hinstance = GetModuleHandleW(PCWSTR::null()).unwrap();
+        let wc = WNDCLASSEXW {
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            lpfnWndProc: Some(color_editor_wnd_proc),
+            hInstance: HINSTANCE(hinstance.0),
+            hCursor: LoadCursorW(HINSTANCE::default(), IDC_ARROW).unwrap_or_default(),
+            hbrBackground: CreateSolidBrush(COLORREF(native_interop::colorref(240, 240, 240))),
+            lpszClassName: PCWSTR::from_raw(class_name.as_ptr()),
+            ..Default::default()
+        };
+        let _ = RegisterClassExW(&wc);
+    }
+}
+
+fn open_color_editor(owner: HWND, target: StyleColorTarget) {
+    close_style_editors();
+    register_color_editor_class();
+    let (theme_is_dark, language, color) = {
+        let state = lock_state();
+        let Some(s) = state.as_ref() else {
+            return;
+        };
+        (s.is_dark, s.language, s.styles.active(s.is_dark).color(target))
+    };
+
+    unsafe {
+        let class_name = native_interop::wide_str("CodexUsageColorEditor");
+        let title = format!(
+            "{} - {}",
+            if language == LanguageId::SimplifiedChinese { "样式" } else { "Style" },
+            style_color_target_label(target, language)
+        );
+        let title = native_interop::wide_str(&title);
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        let Ok(hwnd) = CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            PCWSTR::from_raw(class_name.as_ptr()),
+            PCWSTR::from_raw(title.as_ptr()),
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+            pt.x + 12,
+            pt.y + 12,
+            350,
+            245,
+            owner,
+            HMENU::default(),
+            GetModuleHandleW(PCWSTR::null()).unwrap(),
+            None,
+        ) else {
+            return;
+        };
+
+        let channel_names = ["R", "G", "B", "A"];
+        let channel_values = [color.r, color.g, color.b, color.a];
+        let mut sliders = [SendHwnd(0); 4];
+        let mut labels = [SendHwnd(0); 4];
+        for index in 0..4 {
+            let y = 18 + index as i32 * 38;
+            let Some(_) = create_editor_static(hwnd, channel_names[index], 12, y + 5, 20, 22)
+            else {
+                let _ = DestroyWindow(hwnd);
+                return;
+            };
+            let Some(slider) = create_editor_trackbar(hwnd, 34, y, 230, 30, 255, channel_values[index] as i32)
+            else {
+                let _ = DestroyWindow(hwnd);
+                return;
+            };
+            let Some(value_label) =
+                create_editor_static(hwnd, &channel_values[index].to_string(), 274, y + 5, 50, 22)
+            else {
+                let _ = DestroyWindow(hwnd);
+                return;
+            };
+            sliders[index] = SendHwnd::from_hwnd(slider);
+            labels[index] = SendHwnd::from_hwnd(value_label);
+        }
+
+        let Some(hex_label) =
+            create_editor_static(hwnd, &color.to_hex_rgba(), 34, 172, 150, 24)
+        else {
+            let _ = DestroyWindow(hwnd);
+            return;
+        };
+        let hint = if language == LanguageId::SimplifiedChinese {
+            "拖动时实时预览，操作结束自动保存"
+        } else {
+            "Live preview while dragging; changes save automatically"
+        };
+        let _ = create_editor_static(hwnd, hint, 34, 196, 290, 22);
+
+        let editor = ColorEditorState {
+            hwnd: SendHwnd::from_hwnd(hwnd),
+            owner: SendHwnd::from_hwnd(owner),
+            theme_is_dark,
+            target,
+            sliders,
+            value_labels: labels,
+            hex_label: SendHwnd::from_hwnd(hex_label),
+        };
+        {
+            let mut state = COLOR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+            *state = Some(editor);
+        }
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        let _ = SetForegroundWindow(hwnd);
+    }
+}
+
+fn update_blur_editor_label(editor: BlurEditorState, radius: u8, language: LanguageId) {
+    let text = if radius == 0 {
+        if language == LanguageId::SimplifiedChinese {
+            "关闭".to_string()
+        } else {
+            "Off".to_string()
+        }
+    } else {
+        format!("{} px", radius)
+    };
+    unsafe {
+        let text = native_interop::wide_str(&text);
+        let _ = SetWindowTextW(editor.value_label.to_hwnd(), PCWSTR::from_raw(text.as_ptr()));
+    }
+}
+
+unsafe extern "system" fn blur_editor_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_HSCROLL => {
+            let editor = {
+                let state = BLUR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+                state.as_ref().copied().filter(|s| s.hwnd.to_hwnd() == hwnd)
+            };
+            if let Some(editor) = editor {
+                let radius =
+                    SendMessageW(editor.slider.to_hwnd(), TBM_GETPOS_MSG, WPARAM(0), LPARAM(0)).0
+                        as u8;
+                let language = {
+                    let state = lock_state();
+                    state.as_ref().map(|s| s.language).unwrap_or(LanguageId::English)
+                };
+                update_blur_editor_label(editor, radius, language);
+                apply_style_blur(editor.theme_is_dark, radius);
+                let code = (wparam.0 & 0xFFFF) as u16;
+                if code == TB_ENDTRACK_CODE {
+                    save_state_settings();
+                }
+            }
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            save_state_settings();
+            let _ = DestroyWindow(hwnd);
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            let mut state = BLUR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+            if state.as_ref().map(|s| s.hwnd.to_hwnd()) == Some(hwnd) {
+                *state = None;
+            }
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+fn register_blur_editor_class() {
+    unsafe {
+        let class_name = native_interop::wide_str("CodexUsageBlurEditor");
+        let hinstance = GetModuleHandleW(PCWSTR::null()).unwrap();
+        let wc = WNDCLASSEXW {
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            lpfnWndProc: Some(blur_editor_wnd_proc),
+            hInstance: HINSTANCE(hinstance.0),
+            hCursor: LoadCursorW(HINSTANCE::default(), IDC_ARROW).unwrap_or_default(),
+            hbrBackground: CreateSolidBrush(COLORREF(native_interop::colorref(240, 240, 240))),
+            lpszClassName: PCWSTR::from_raw(class_name.as_ptr()),
+            ..Default::default()
+        };
+        let _ = RegisterClassExW(&wc);
+    }
+}
+
+fn open_blur_editor(owner: HWND) {
+    close_style_editors();
+    register_blur_editor_class();
+    let (theme_is_dark, language, radius) = {
+        let state = lock_state();
+        let Some(s) = state.as_ref() else {
+            return;
+        };
+        (
+            s.is_dark,
+            s.language,
+            s.styles.active(s.is_dark).panel_blur_radius,
+        )
+    };
+
+    unsafe {
+        let class_name = native_interop::wide_str("CodexUsageBlurEditor");
+        let title = native_interop::wide_str(if language == LanguageId::SimplifiedChinese {
+            "样式 - 背景模糊"
+        } else {
+            "Style - Background blur"
+        });
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        let Ok(hwnd) = CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            PCWSTR::from_raw(class_name.as_ptr()),
+            PCWSTR::from_raw(title.as_ptr()),
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+            pt.x + 12,
+            pt.y + 12,
+            330,
+            150,
+            owner,
+            HMENU::default(),
+            GetModuleHandleW(PCWSTR::null()).unwrap(),
+            None,
+        ) else {
+            return;
+        };
+
+        let Some(slider) = create_editor_trackbar(hwnd, 18, 20, 240, 32, 20, radius as i32)
+        else {
+            let _ = DestroyWindow(hwnd);
+            return;
+        };
+        let Some(value_label) = create_editor_static(hwnd, "", 268, 25, 48, 22) else {
+            let _ = DestroyWindow(hwnd);
+            return;
+        };
+        let hint = if language == LanguageId::SimplifiedChinese {
+            "0 为关闭；拖动时实时预览，操作结束自动保存"
+        } else {
+            "0 disables blur; live preview while dragging"
+        };
+        let _ = create_editor_static(hwnd, hint, 18, 65, 290, 22);
+
+        let editor = BlurEditorState {
+            hwnd: SendHwnd::from_hwnd(hwnd),
+            owner: SendHwnd::from_hwnd(owner),
+            theme_is_dark,
+            slider: SendHwnd::from_hwnd(slider),
+            value_label: SendHwnd::from_hwnd(value_label),
+        };
+        {
+            let mut state = BLUR_EDITOR_STATE.lock().unwrap_or_else(|e| e.into_inner());
+            *state = Some(editor);
+        }
+        update_blur_editor_label(editor, radius, language);
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        let _ = SetForegroundWindow(hwnd);
+    }
+}
+
 fn show_context_menu(hwnd: HWND) {
     unsafe {
         let (
