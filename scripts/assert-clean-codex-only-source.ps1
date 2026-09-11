@@ -41,7 +41,7 @@ if (Test-Path (Join-Path $repoRoot 'packaging\winget')) {
 if ($cargo -match 'upstream-ray/codex-usage-monitor') {
     throw 'Cargo package metadata must point at this fork, not upstream-ray.'
 }
-if ($installer -notmatch '\$Repository\s*=\s*''walle-2017/codex-usage-monitor''') {
+if ($installer -notmatch '\$Repository\s*=\s*''walle-2017/codex-usage-win''') {
     throw 'Installer must download releases from this fork.'
 }
 
