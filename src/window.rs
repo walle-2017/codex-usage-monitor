@@ -3496,24 +3496,24 @@ fn draw_row(
     hdc: HDC,
     x: i32,
     y: i32,
-    is_dark: bool,
-    language: LanguageId,
-    text_color: &Color,
+    quota_type_color: &Color,
+    primary_color: &Color,
+    reset_color: &Color,
     label: &str,
     percent: f64,
     value_text: &str,
     track: &Color,
     label_width: i32,
     text_width: i32,
+    _panel_base: Color,
 ) {
     let seg_h = sc(SEGMENT_H);
     let preset = current_appearance_preset();
     let segment_count = row_bar_segment_count(preset);
     let metrics = preset.metrics();
-    let percentage_text_color = stable_percentage_text_color(is_dark);
 
     unsafe {
-        let _ = SetTextColor(hdc, COLORREF(text_color.to_colorref()));
+        let _ = SetTextColor(hdc, COLORREF(quota_type_color.to_colorref()));
         let mut label_wide: Vec<u16> = label.encode_utf16().collect();
         let mut label_rect = RECT {
             left: x,
@@ -3529,7 +3529,7 @@ fn draw_row(
         );
 
         let bar_x = x + sc(label_width) + sc(metrics.label_bar_gap);
-        let bar_color = quota_bar_color(is_dark, percent, language);
+        let bar_color = quota_bar_color(percent).blend_over(*track);
         draw_usage_bar(
             hdc,
             bar_x,
@@ -3539,7 +3539,8 @@ fn draw_row(
             value_text,
             &bar_color,
             track,
-            &percentage_text_color,
+            primary_color,
+            reset_color,
             text_width,
         );
     }
@@ -3555,7 +3556,8 @@ fn draw_usage_bar(
     text: &str,
     accent: &Color,
     track: &Color,
-    text_color: &Color,
+    primary_color: &Color,
+    reset_color: &Color,
     text_width: i32,
 ) {
     let seg_w = sc(SEGMENT_W);
@@ -3592,10 +3594,20 @@ fn draw_usage_bar(
         }
 
         let text_x = bar_x + progress_width + sc(metrics.bar_percent_gap);
-        draw_usage_value_text(hdc, text_x, y, seg_h, text, text_color, text_width);
+        draw_usage_value_text(
+            hdc,
+            text_x,
+            y,
+            seg_h,
+            text,
+            primary_color,
+            reset_color,
+            text_width,
+        );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_usage_value_text(
     hdc: HDC,
     text_x: i32,
@@ -3603,6 +3615,7 @@ fn draw_usage_value_text(
     row_height: i32,
     text: &str,
     primary_color: &Color,
+    secondary_color: &Color,
     total_text_width: i32,
 ) {
     let preset = current_appearance_preset();
@@ -3664,11 +3677,6 @@ fn draw_usage_value_text(
                 PCWSTR::from_raw(font_name.as_ptr()),
             );
             SelectObject(hdc, secondary_font);
-            let secondary_color = if theme::is_dark_mode() {
-                Color::from_hex("#92979D")
-            } else {
-                Color::from_hex("#666666")
-            };
             let _ = SetTextColor(hdc, COLORREF(secondary_color.to_colorref()));
             let mut secondary_wide: Vec<u16> = secondary.encode_utf16().collect();
             let secondary_x = text_x + sc(metrics.percent_width) + sc(metrics.percent_reset_gap);
@@ -3693,60 +3701,39 @@ fn draw_usage_value_text(
     }
 }
 
-fn draw_acrylic_panel(hdc: HDC, width: i32, height: i32, is_dark: bool, panel_radius: i32) {
-    // This intentionally simulates Acrylic with low-contrast solid colors rather than
-    // per-pixel translucency, preserving the existing ClearType rendering path.
-    let (border, fill) = if is_dark {
-        (Color::from_hex("#343B43"), Color::from_hex("#242A31"))
-    } else {
-        (Color::from_hex("#D4D9DF"), Color::from_hex("#EEF1F4"))
-    };
-
-    let outer_inset = sc(1);
+fn draw_panel(hdc: HDC, width: i32, height: i32, border: &Color, fill: &Color) {
+    let outer_inset = sc(1).max(1);
     let outer = RECT {
         left: outer_inset,
         top: outer_inset,
         right: width - outer_inset,
         bottom: height - outer_inset,
     };
-    let inner_inset = outer_inset + sc(1);
+    let inner_inset = outer_inset + sc(1).max(1);
     let inner = RECT {
         left: inner_inset,
         top: inner_inset,
         right: width - inner_inset,
         bottom: height - inner_inset,
     };
+    unsafe {
+        let border_brush = CreateSolidBrush(COLORREF(border.to_colorref()));
+        FillRect(hdc, &outer, border_brush);
+        let _ = DeleteObject(border_brush);
 
-    if panel_radius <= 0 {
-        unsafe {
-            let border_brush = CreateSolidBrush(COLORREF(border.to_colorref()));
-            FillRect(hdc, &outer, border_brush);
-            let _ = DeleteObject(border_brush);
-
-            let fill_brush = CreateSolidBrush(COLORREF(fill.to_colorref()));
-            FillRect(hdc, &inner, fill_brush);
-            let _ = DeleteObject(fill_brush);
-        }
-        return;
+        let fill_brush = CreateSolidBrush(COLORREF(fill.to_colorref()));
+        FillRect(hdc, &inner, fill_brush);
+        let _ = DeleteObject(fill_brush);
     }
-
-    let radius = sc(panel_radius).max(sc(1));
-    draw_rounded_rect(hdc, &outer, &border, radius);
-    draw_rounded_rect(hdc, &inner, &fill, (radius - sc(1)).max(sc(1)));
 }
 
-fn draw_drag_handle(hdc: HDC, height: i32, is_dark: bool) {
+fn draw_drag_handle(hdc: HDC, height: i32, color: &Color) {
     let dot = sc(2).max(1);
     let gap_x = sc(1).max(1);
     let gap_y = sc(2).max(1);
     let matrix_h = dot * 3 + gap_y * 2;
     let origin_x = sc(DRAG_HANDLE_VISUAL_INSET_X);
     let origin_y = (height - matrix_h) / 2;
-    let color = if is_dark {
-        Color::from_hex("#69727C")
-    } else {
-        Color::from_hex("#8A929A")
-    };
 
     for row in 0..3 {
         for col in 0..2 {
@@ -3758,7 +3745,7 @@ fn draw_drag_handle(hdc: HDC, height: i32, is_dark: bool) {
                 right: left + dot,
                 bottom: top + dot,
             };
-            draw_rounded_rect(hdc, &rect, &color, sc(1).max(1));
+            draw_rounded_rect(hdc, &rect, color, sc(1).max(1));
         }
     }
 }
