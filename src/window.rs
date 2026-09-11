@@ -59,6 +59,7 @@ struct AppState {
     appearance_preset: AppearancePreset,
     theme_mode: ThemeMode,
     styles: StyleSettings,
+    native_acrylic_active: bool,
     small_taskbar_mode: bool,
     small_show_weekly: bool,
 
@@ -1366,6 +1367,7 @@ pub fn run() {
                 appearance_preset: settings.appearance_preset,
                 theme_mode: settings.theme_mode,
                 styles: settings.styles.clone(),
+                native_acrylic_active: false,
                 small_taskbar_mode: false,
                 small_show_weekly: false,
                 codex_session_percent: 0.0,
@@ -1485,7 +1487,6 @@ fn render_layered() {
     refresh_dpi();
     let (
         hwnd_val,
-        taskbar_hwnd,
         is_dark,
         embedded,
         language,
@@ -1503,7 +1504,6 @@ fn render_layered() {
         match state.as_ref() {
             Some(s) => (
                 s.hwnd,
-                s.taskbar_hwnd,
                 s.is_dark,
                 s.embedded,
                 s.language,
@@ -1522,6 +1522,44 @@ fn render_layered() {
     };
 
     let hwnd = hwnd_val.to_hwnd();
+    let acrylic_requested = style.panel_blur_radius > 0;
+    if acrylic_requested {
+        native_interop::set_layered_style(hwnd, false);
+        let acrylic_color = style.color(StyleColorTarget::PanelBackground);
+        let acrylic_ok = native_interop::set_native_acrylic(hwnd, Some(acrylic_color));
+        {
+            let mut state = lock_state();
+            if let Some(s) = state.as_mut() {
+                s.native_acrylic_active = acrylic_ok;
+            }
+        }
+        diagnose::log(format!(
+            "native acrylic requested embedded={embedded} result={acrylic_ok}"
+        ));
+        if acrylic_ok {
+            unsafe {
+                let _ = InvalidateRect(hwnd, None, true);
+            }
+            return;
+        }
+
+        // Don't silently fall back to the old taskbar screenshot blur. It does
+        // not capture the DWM-composited backdrop reliably.
+        let _ = native_interop::set_native_acrylic(hwnd, None);
+        if embedded {
+            native_interop::set_layered_style(hwnd, true);
+        }
+    } else {
+        let _ = native_interop::set_native_acrylic(hwnd, None);
+        if embedded {
+            native_interop::set_layered_style(hwnd, true);
+        }
+        let mut state = lock_state();
+        if let Some(s) = state.as_mut() {
+            s.native_acrylic_active = false;
+        }
+    }
+
     if !embedded {
         unsafe {
             let _ = InvalidateRect(hwnd, None, false);
@@ -1572,38 +1610,8 @@ fn render_layered() {
         let pixel_data = std::slice::from_raw_parts_mut(bits as *mut u32, pixel_count);
         fill_bitmap(pixel_data, bg_color);
 
-        // Transparency must not be implemented by capturing the taskbar and then
-        // forcing the panel opaque: that leaves a dark/black backing surface when
-        // the configured panel alpha reaches zero. Capture only when blur itself
-        // needs a source image. Plain RGBA transparency is handled by the final
-        // per-pixel alpha pass below.
-        let panel_background = style.color(StyleColorTarget::PanelBackground);
-        let panel_border = style.color(StyleColorTarget::PanelBorder);
-        let panel_fully_transparent = panel_background.a == 0 && panel_border.a == 0;
-        let captured_for_blur = if style.panel_blur_radius > 0 && !panel_fully_transparent {
-            taskbar_hwnd
-                .map(|taskbar| capture_taskbar_background(hwnd, taskbar, mem_dc, width, height))
-                .unwrap_or(false)
-        } else {
-            false
-        };
-        if captured_for_blur {
-            box_blur_bitmap(
-                pixel_data,
-                width,
-                height,
-                sc(style.panel_blur_radius as i32).max(1),
-            );
-        }
-
-        // Build an opaque RGB working surface for GDI/ClearType. When blur is
-        // active, preserve the blurred backdrop and add only a light RGB tint;
-        // configured color alpha remains the actual layered-window opacity.
-        if captured_for_blur {
-            tint_frosted_panel_bitmap(pixel_data, width, height, &style);
-        } else {
-            blend_panel_bitmap(pixel_data, width, height, &style);
-        }
+        // Non-acrylic rendering stays fully app-controlled.
+        blend_panel_bitmap(pixel_data, width, height, &style);
         let panel_pixels = pixel_data.to_vec();
 
         paint_content(
@@ -1630,7 +1638,6 @@ fn render_layered() {
             width,
             height,
             &style,
-            captured_for_blur,
         );
 
         let pt_src = POINT { x: 0, y: 0 };
@@ -1665,93 +1672,6 @@ fn render_layered() {
 fn fill_bitmap(pixels: &mut [u32], color: Color) {
     let value = ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
     pixels.fill(value);
-}
-
-fn capture_taskbar_background(
-    hwnd: HWND,
-    taskbar_hwnd: HWND,
-    destination_dc: HDC,
-    width: i32,
-    height: i32,
-) -> bool {
-    unsafe {
-        let mut widget_rect = RECT::default();
-        let mut taskbar_rect = RECT::default();
-        if GetWindowRect(hwnd, &mut widget_rect).is_err()
-            || GetWindowRect(taskbar_hwnd, &mut taskbar_rect).is_err()
-        {
-            return false;
-        }
-        let source_dc = GetDC(taskbar_hwnd);
-        if source_dc.is_invalid() {
-            return false;
-        }
-        let source_x = widget_rect.left - taskbar_rect.left;
-        let source_y = widget_rect.top - taskbar_rect.top;
-        let ok = BitBlt(
-            destination_dc,
-            0,
-            0,
-            width,
-            height,
-            source_dc,
-            source_x,
-            source_y,
-            SRCCOPY,
-        )
-        .is_ok();
-        ReleaseDC(taskbar_hwnd, source_dc);
-        ok
-    }
-}
-
-fn box_blur_bitmap(pixels: &mut [u32], width: i32, height: i32, radius: i32) {
-    if radius <= 0 || width <= 1 || height <= 1 {
-        return;
-    }
-    let width = width as usize;
-    let height = height as usize;
-    let radius = radius as usize;
-    let source = pixels.to_vec();
-    let mut horizontal = vec![0u32; pixels.len()];
-
-    for y in 0..height {
-        for x in 0..width {
-            let start = x.saturating_sub(radius);
-            let end = (x + radius).min(width - 1);
-            let count = (end - start + 1) as u32;
-            let mut r = 0u32;
-            let mut g = 0u32;
-            let mut b = 0u32;
-            for sx in start..=end {
-                let px = source[y * width + sx];
-                b += px & 0xFF;
-                g += (px >> 8) & 0xFF;
-                r += (px >> 16) & 0xFF;
-            }
-            horizontal[y * width + x] =
-                ((r / count) << 16) | ((g / count) << 8) | (b / count);
-        }
-    }
-
-    for y in 0..height {
-        for x in 0..width {
-            let start = y.saturating_sub(radius);
-            let end = (y + radius).min(height - 1);
-            let count = (end - start + 1) as u32;
-            let mut r = 0u32;
-            let mut g = 0u32;
-            let mut b = 0u32;
-            for sy in start..=end {
-                let px = horizontal[sy * width + x];
-                b += px & 0xFF;
-                g += (px >> 8) & 0xFF;
-                r += (px >> 16) & 0xFF;
-            }
-            pixels[y * width + x] =
-                ((r / count) << 16) | ((g / count) << 8) | (b / count);
-        }
-    }
 }
 
 fn blend_pixel(pixel: u32, color: Color) -> u32 {
@@ -1794,45 +1714,6 @@ fn blend_panel_bitmap(pixels: &mut [u32], width: i32, height: i32, style: &Theme
     }
 }
 
-fn tint_rgb_toward(pixel: u32, tint: Color, strength: u8) -> u32 {
-    let source_b = pixel & 0xFF;
-    let source_g = (pixel >> 8) & 0xFF;
-    let source_r = (pixel >> 16) & 0xFF;
-    let strength = strength as u32;
-    let inv = 255 - strength;
-    let r = (source_r * inv + tint.r as u32 * strength + 127) / 255;
-    let g = (source_g * inv + tint.g as u32 * strength + 127) / 255;
-    let b = (source_b * inv + tint.b as u32 * strength + 127) / 255;
-    (r << 16) | (g << 8) | b
-}
-
-fn tint_frosted_panel_bitmap(
-    pixels: &mut [u32],
-    width: i32,
-    height: i32,
-    style: &ThemeStyle,
-) {
-    let outer_inset = sc(1).max(1);
-    let inner_inset = outer_inset + PANEL_BORDER_WIDTH_PX;
-    let border = style.color(StyleColorTarget::PanelBorder);
-    let fill = style.color(StyleColorTarget::PanelBackground);
-    for y in outer_inset..(height - outer_inset).max(outer_inset) {
-        for x in outer_inset..(width - outer_inset).max(outer_inset) {
-            let idx = (y * width + x) as usize;
-            let (tint, strength) = if x >= inner_inset
-                && x < width - inner_inset
-                && y >= inner_inset
-                && y < height - inner_inset
-            {
-                (fill, FROSTED_GLASS_FILL_TINT)
-            } else {
-                (border, FROSTED_GLASS_BORDER_TINT)
-            };
-            pixels[idx] = tint_rgb_toward(pixels[idx], tint, strength);
-        }
-    }
-}
-
 fn panel_color_at(style: &ThemeStyle, width: i32, height: i32, x: i32, y: i32) -> Option<Color> {
     let outer_inset = sc(1).max(1);
     if x < outer_inset
@@ -1855,23 +1736,13 @@ fn panel_color_at(style: &ThemeStyle, width: i32, height: i32, x: i32, y: i32) -
 }
 
 fn premultiplied_pixel(color: Color) -> u32 {
-    premultiplied_rgb_pixel(
-        ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32,
-        color.a,
-    )
-}
-
-fn premultiplied_rgb_pixel(pixel: u32, alpha: u8) -> u32 {
-    let alpha = alpha as u32;
+    let alpha = color.a as u32;
     if alpha == 0 {
         return 0;
     }
-    let b = pixel & 0xFF;
-    let g = (pixel >> 8) & 0xFF;
-    let r = (pixel >> 16) & 0xFF;
-    let r = (r * alpha + 127) / 255;
-    let g = (g * alpha + 127) / 255;
-    let b = (b * alpha + 127) / 255;
+    let r = (color.r as u32 * alpha + 127) / 255;
+    let g = (color.g as u32 * alpha + 127) / 255;
+    let b = (color.b as u32 * alpha + 127) / 255;
     (alpha << 24) | (r << 16) | (g << 8) | b
 }
 
@@ -1881,7 +1752,6 @@ fn finalize_layered_bitmap(
     width: i32,
     height: i32,
     style: &ThemeStyle,
-    flatten_blurred_backdrop: bool,
 ) {
     for y in 0..height {
         for x in 0..width {
@@ -1891,15 +1761,10 @@ fn finalize_layered_bitmap(
                 continue;
             };
 
-            // Foreground content is kept opaque. Pure panel pixels retain the
-            // configured RGBA alpha even with blur enabled. In frosted mode the
-            // source RGB is the captured + blurred + lightly tinted backdrop, so
-            // Windows composites that blurred sample over the live taskbar using
-            // the same alpha the user selected.
+            // Foreground content is kept opaque. Panel pixels retain the
+            // configured RGBA alpha in the normal layered renderer.
             if pixels[idx] != panel_pixels[idx] {
                 pixels[idx] = (pixels[idx] & 0x00FFFFFF) | 0xFF000000;
-            } else if flatten_blurred_backdrop {
-                pixels[idx] = premultiplied_rgb_pixel(panel_pixels[idx], panel_color.a);
             } else {
                 pixels[idx] = premultiplied_pixel(panel_color);
             }
@@ -2475,19 +2340,22 @@ unsafe extern "system" fn wnd_proc(
     match msg {
         WM_PAINT => {
             // For non-embedded fallback, paint normally
-            let embedded = {
+            let (embedded, native_acrylic_active) = {
                 let state = lock_state();
-                state.as_ref().map(|s| s.embedded).unwrap_or(false)
+                state
+                    .as_ref()
+                    .map(|s| (s.embedded, s.native_acrylic_active))
+                    .unwrap_or((false, false))
             };
-            if embedded {
-                // Layered windows don't use WM_PAINT; just validate the region
+            if embedded && !native_acrylic_active {
+                // Layered windows don't use WM_PAINT; just validate the region.
                 let mut ps = PAINTSTRUCT::default();
                 let _ = BeginPaint(hwnd, &mut ps);
                 let _ = EndPaint(hwnd, &ps);
             } else {
                 let mut ps = PAINTSTRUCT::default();
                 let hdc = BeginPaint(hwnd, &mut ps);
-                paint(hdc, hwnd);
+                paint(hdc, hwnd, native_acrylic_active);
                 let _ = EndPaint(hwnd, &ps);
             }
             LRESULT(0)
@@ -4312,7 +4180,7 @@ fn show_context_menu(hwnd: HWND) {
 }
 
 /// Paint for non-embedded fallback (normal WM_PAINT path)
-fn paint(hdc: HDC, hwnd: HWND) {
+fn paint(hdc: HDC, hwnd: HWND, native_acrylic_active: bool) {
     let (
         is_dark,
         language,
@@ -4355,6 +4223,28 @@ fn paint(hdc: HDC, hwnd: HWND) {
         let width = client_rect.right - client_rect.left;
         let height = client_rect.bottom - client_rect.top;
         if width <= 0 || height <= 0 {
+            return;
+        }
+
+        if native_acrylic_active {
+            // The DWM owns the acrylic backdrop. Draw only foreground content.
+            paint_content(
+                hdc,
+                width,
+                height,
+                is_dark,
+                &bg_color,
+                language,
+                strings,
+                codex_session_pct,
+                &codex_session_text,
+                codex_weekly_pct,
+                &codex_weekly_text,
+                show_session_window,
+                show_weekly_window,
+                last_poll_ok,
+                false,
+            );
             return;
         }
 
