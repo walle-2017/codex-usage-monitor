@@ -172,7 +172,6 @@ struct ColorEditorState {
 #[derive(Clone, Copy)]
 struct BlurEditorState {
     hwnd: SendHwnd,
-    owner: SendHwnd,
     theme_is_dark: bool,
     slider: SendHwnd,
     value_label: SendHwnd,
@@ -3551,7 +3550,6 @@ fn open_blur_editor(owner: HWND) {
 
         let editor = BlurEditorState {
             hwnd: SendHwnd::from_hwnd(hwnd),
-            owner: SendHwnd::from_hwnd(owner),
             theme_is_dark,
             slider: SendHwnd::from_hwnd(slider),
             value_label: SendHwnd::from_hwnd(value_label),
