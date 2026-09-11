@@ -97,7 +97,7 @@ impl ThemeStyle {
         self.progress_consumed =
             normalize_color(&self.progress_consumed, &fallback.progress_consumed);
         self.drag_handle = normalize_color(&self.drag_handle, &fallback.drag_handle);
-        self.panel_blur_radius = self.panel_blur_radius.min(20);
+        self.panel_blur_radius = u8::from(self.panel_blur_radius > 0);
     }
 
     pub fn color(&self, target: StyleColorTarget) -> Color {
@@ -205,7 +205,7 @@ mod tests {
         styles.dark.panel_blur_radius = 255;
         styles.normalize();
         assert_eq!(styles.dark.panel_background, "#242A31FF");
-        assert_eq!(styles.dark.panel_blur_radius, 20);
+        assert_eq!(styles.dark.panel_blur_radius, 1);
     }
 
     #[test]
