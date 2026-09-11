@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Repository = 'walle-2017/codex-usage-monitor'
+$Repository = 'walle-2017/codex-usage-win'
 $InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexUsageWin'
 $TargetPath = Join-Path $InstallDirectory 'codex-usage-win.exe'
 $InstalledUninstaller = Join-Path $InstallDirectory 'uninstall.ps1'

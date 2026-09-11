@@ -61,6 +61,6 @@ This privacy policy may be updated when the application's functionality or data 
 
 ## Contact and support
 
-Project repository: https://github.com/walle-2017/codex-usage-monitor
+Project repository: https://github.com/walle-2017/codex-usage-win
 
-Support and issue reporting: https://github.com/walle-2017/codex-usage-monitor/issues
+Support and issue reporting: https://github.com/walle-2017/codex-usage-win/issues

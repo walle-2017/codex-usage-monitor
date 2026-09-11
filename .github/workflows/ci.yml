@@ -1,12 +1,9 @@
-name: Safe Windows Build
+name: CI
 
 on:
   push:
     branches:
       - main
-      - safe-no-codex-cli
-      - codex-only-v1-cleanup
-      - feature/codex-usage-win-branding
   pull_request:
     branches:
       - main
@@ -23,73 +20,60 @@ jobs:
       - name: Verify Codex CLI refresh is disabled
         shell: pwsh
         run: ./scripts/assert-no-codex-cli-refresh.ps1
-
       - name: Verify Codex-only runtime
         shell: pwsh
         run: ./scripts/assert-codex-only-runtime.ps1
-
       - name: Verify dead-code cleanup
         shell: pwsh
         run: ./scripts/assert-clean-codex-only-source.ps1
-
-      - name: Verify Codex Usage Win branding contract
+      - name: Verify branding contract
         shell: pwsh
         run: ./scripts/assert-branding.ps1
-
-      - name: Verify v1.0.3 updater release compatibility
+      - name: Verify v1.0.3 migration compatibility
         shell: pwsh
         run: ./scripts/assert-v103-update-compat.ps1
-
-      - name: Verify v1.0.4 version contract
+      - name: Verify version contract
         shell: pwsh
         run: ./scripts/assert-v1-version.ps1
-
-      - name: Verify final documentation
+      - name: Verify documentation
         shell: pwsh
         run: ./scripts/assert-final-docs.ps1
-
+      - name: Verify Store update isolation
+        shell: pwsh
+        run: ./scripts/assert-store-build.ps1
       - name: Verify taskbar drag capture handling
         shell: pwsh
         run: ./scripts/assert-drag-handler-safe.ps1
-
       - name: Verify live drag anchor handling
         shell: pwsh
         run: ./scripts/assert-live-drag-anchor.ps1
-
       - name: Verify compact taskbar UI contract
         shell: pwsh
         run: ./scripts/assert-compact-ui.ps1
-
       - name: Verify small-taskbar UI contract
         shell: pwsh
         run: ./scripts/assert-small-taskbar-ui.ps1
-
       - name: Verify language-independent quota semantics
         shell: pwsh
         run: ./scripts/assert-language-independent-quota.ps1
-
       - name: Verify auto-update safety contract
         shell: pwsh
         run: ./scripts/assert-auto-update.ps1
-
       - name: Verify startup update discovery contract
         shell: pwsh
         run: ./scripts/assert-startup-update-check.ps1
-
       - name: Verify persistent runtime logging contract
         shell: pwsh
         run: ./scripts/assert-runtime-log.ps1
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: clippy
 
       - name: Run tests
         run: cargo test
-
       - name: Run Clippy
         run: cargo clippy -- -D warnings
-
       - name: Build release binary
         run: cargo build --release
 
@@ -104,7 +88,7 @@ jobs:
       - name: Upload Windows x64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: codex-usage-win-safe-windows-x64
+          name: codex-usage-win-windows-x64
           path: |
             dist/codex-usage-win.exe
             dist/codex-usage-win.exe.sha256
