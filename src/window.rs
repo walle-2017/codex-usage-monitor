@@ -3429,6 +3429,7 @@ fn paint(hdc: HDC, hwnd: HWND) {
         codex_weekly_text,
         show_session_window,
         show_weekly_window,
+        last_poll_ok,
     ) = {
         let state = lock_state();
         match state.as_ref() {
@@ -3442,25 +3443,16 @@ fn paint(hdc: HDC, hwnd: HWND) {
                 s.codex_weekly_text.clone(),
                 s.show_session_window,
                 s.show_weekly_window,
+                s.last_poll_ok,
             ),
             None => return,
         }
     };
 
-    let track = if is_dark {
-        Color::from_hex("#363A3F")
-    } else {
-        Color::from_hex("#AAAAAA")
-    };
-    let text_color = if is_dark {
-        Color::from_hex("#A0A0A0")
-    } else {
-        Color::from_hex("#404040")
-    };
     let bg_color = if is_dark {
-        Color::from_hex("#1C1C1C")
+        Color::from_hex("#1C1C1CFF")
     } else {
-        Color::from_hex("#F3F3F3")
+        Color::from_hex("#F3F3F3FF")
     };
 
     unsafe {
@@ -3481,8 +3473,6 @@ fn paint(hdc: HDC, hwnd: HWND) {
             height,
             is_dark,
             &bg_color,
-            &text_color,
-            &track,
             language,
             strings,
             codex_session_pct,
@@ -3491,6 +3481,8 @@ fn paint(hdc: HDC, hwnd: HWND) {
             &codex_weekly_text,
             show_session_window,
             show_weekly_window,
+            last_poll_ok,
+            true,
         );
         let _ = BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY);
         SelectObject(mem_dc, old_bmp);
