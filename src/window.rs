@@ -162,7 +162,6 @@ static SUPPRESS_TRAY_REPOSITION_UNTIL: Mutex<Option<Instant>> = Mutex::new(None)
 #[derive(Clone, Copy)]
 struct ColorEditorState {
     hwnd: SendHwnd,
-    owner: SendHwnd,
     theme_is_dark: bool,
     target: StyleColorTarget,
     sliders: [SendHwnd; 4],
@@ -3400,7 +3399,6 @@ fn open_color_editor(owner: HWND, target: StyleColorTarget) {
 
         let editor = ColorEditorState {
             hwnd: SendHwnd::from_hwnd(hwnd),
-            owner: SendHwnd::from_hwnd(owner),
             theme_is_dark,
             target,
             sliders,
