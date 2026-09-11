@@ -149,6 +149,10 @@ const TBM_SETRANGE_MSG: u32 = WM_USER + 6;
 const TB_ENDTRACK_CODE: u16 = 8;
 /// Keep the visible panel border at one physical pixel even at high DPI.
 const PANEL_BORDER_WIDTH_PX: i32 = 1;
+/// Frosted-glass tint strength. The configured RGBA alpha remains the actual
+/// window opacity; these values only tint the captured/blurred backdrop RGB.
+const FROSTED_GLASS_FILL_TINT: u8 = 56;
+const FROSTED_GLASS_BORDER_TINT: u8 = 96;
 
 const GITHUB_RELEASES_URL: &str =
     "https://github.com/walle-2017/codex-usage-win/releases";
@@ -1592,10 +1596,14 @@ fn render_layered() {
             );
         }
 
-        // Build an opaque RGB working surface for GDI/ClearType. We snapshot it
-        // before drawing foreground content so the final pass can distinguish the
-        // panel surface from text/progress/drag pixels.
-        blend_panel_bitmap(pixel_data, width, height, &style);
+        // Build an opaque RGB working surface for GDI/ClearType. When blur is
+        // active, preserve the blurred backdrop and add only a light RGB tint;
+        // configured color alpha remains the actual layered-window opacity.
+        if captured_for_blur {
+            tint_frosted_panel_bitmap(pixel_data, width, height, &style);
+        } else {
+            blend_panel_bitmap(pixel_data, width, height, &style);
+        }
         let panel_pixels = pixel_data.to_vec();
 
         paint_content(
@@ -1786,6 +1794,45 @@ fn blend_panel_bitmap(pixels: &mut [u32], width: i32, height: i32, style: &Theme
     }
 }
 
+fn tint_rgb_toward(pixel: u32, tint: Color, strength: u8) -> u32 {
+    let source_b = pixel & 0xFF;
+    let source_g = (pixel >> 8) & 0xFF;
+    let source_r = (pixel >> 16) & 0xFF;
+    let strength = strength as u32;
+    let inv = 255 - strength;
+    let r = (source_r * inv + tint.r as u32 * strength + 127) / 255;
+    let g = (source_g * inv + tint.g as u32 * strength + 127) / 255;
+    let b = (source_b * inv + tint.b as u32 * strength + 127) / 255;
+    (r << 16) | (g << 8) | b
+}
+
+fn tint_frosted_panel_bitmap(
+    pixels: &mut [u32],
+    width: i32,
+    height: i32,
+    style: &ThemeStyle,
+) {
+    let outer_inset = sc(1).max(1);
+    let inner_inset = outer_inset + PANEL_BORDER_WIDTH_PX;
+    let border = style.color(StyleColorTarget::PanelBorder);
+    let fill = style.color(StyleColorTarget::PanelBackground);
+    for y in outer_inset..(height - outer_inset).max(outer_inset) {
+        for x in outer_inset..(width - outer_inset).max(outer_inset) {
+            let idx = (y * width + x) as usize;
+            let (tint, strength) = if x >= inner_inset
+                && x < width - inner_inset
+                && y >= inner_inset
+                && y < height - inner_inset
+            {
+                (fill, FROSTED_GLASS_FILL_TINT)
+            } else {
+                (border, FROSTED_GLASS_BORDER_TINT)
+            };
+            pixels[idx] = tint_rgb_toward(pixels[idx], tint, strength);
+        }
+    }
+}
+
 fn panel_color_at(style: &ThemeStyle, width: i32, height: i32, x: i32, y: i32) -> Option<Color> {
     let outer_inset = sc(1).max(1);
     if x < outer_inset
@@ -1808,13 +1855,23 @@ fn panel_color_at(style: &ThemeStyle, width: i32, height: i32, x: i32, y: i32) -
 }
 
 fn premultiplied_pixel(color: Color) -> u32 {
-    let alpha = color.a as u32;
+    premultiplied_rgb_pixel(
+        ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32,
+        color.a,
+    )
+}
+
+fn premultiplied_rgb_pixel(pixel: u32, alpha: u8) -> u32 {
+    let alpha = alpha as u32;
     if alpha == 0 {
         return 0;
     }
-    let r = (color.r as u32 * alpha + 127) / 255;
-    let g = (color.g as u32 * alpha + 127) / 255;
-    let b = (color.b as u32 * alpha + 127) / 255;
+    let b = pixel & 0xFF;
+    let g = (pixel >> 8) & 0xFF;
+    let r = (pixel >> 16) & 0xFF;
+    let r = (r * alpha + 127) / 255;
+    let g = (g * alpha + 127) / 255;
+    let b = (b * alpha + 127) / 255;
     (alpha << 24) | (r << 16) | (g << 8) | b
 }
 
@@ -1834,11 +1891,15 @@ fn finalize_layered_bitmap(
                 continue;
             };
 
-            // Foreground content is kept opaque. The panel itself retains the
-            // configured RGBA alpha. With an actual blurred capture, flatten the
-            // blurred backdrop because it already represents the pixels behind us.
-            if pixels[idx] != panel_pixels[idx] || flatten_blurred_backdrop {
+            // Foreground content is kept opaque. Pure panel pixels retain the
+            // configured RGBA alpha even with blur enabled. In frosted mode the
+            // source RGB is the captured + blurred + lightly tinted backdrop, so
+            // Windows composites that blurred sample over the live taskbar using
+            // the same alpha the user selected.
+            if pixels[idx] != panel_pixels[idx] {
                 pixels[idx] = (pixels[idx] & 0x00FFFFFF) | 0xFF000000;
+            } else if flatten_blurred_backdrop {
+                pixels[idx] = premultiplied_rgb_pixel(panel_pixels[idx], panel_color.a);
             } else {
                 pixels[idx] = premultiplied_pixel(panel_color);
             }
