@@ -3,13 +3,24 @@ name: Store MSIX Build
 on:
   push:
     branches:
-      - feature/msix-store-packaging
+      - main
     paths:
       - 'packaging/**'
       - '.github/workflows/store-msix.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/icons/**'
+      - 'src/window.rs'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/store-msix.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/icons/**'
+      - 'src/window.rs'
   workflow_dispatch:
 
 permissions:
