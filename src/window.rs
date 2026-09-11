@@ -2979,8 +2979,28 @@ unsafe extern "system" fn wnd_proc(
                     notify_quota_alerts(hwnd, &alerts);
                     save_state_settings();
                 }
-                IDM_APPEARANCE_COMPACT | IDM_APPEARANCE_MINIMAL => {
-                    let preset = if id == IDM_APPEARANCE_MINIMAL {
+                IDM_THEME_SYSTEM | IDM_THEME_DARK | IDM_THEME_LIGHT => {
+                    close_style_editors();
+                    {
+                        let mut state = lock_state();
+                        if let Some(s) = state.as_mut() {
+                            s.theme_mode = match id {
+                                IDM_THEME_DARK => ThemeMode::Dark,
+                                IDM_THEME_LIGHT => ThemeMode::Light,
+                                _ => ThemeMode::System,
+                            };
+                            s.is_dark = match s.theme_mode {
+                                ThemeMode::System => theme::is_dark_mode(),
+                                ThemeMode::Dark => true,
+                                ThemeMode::Light => false,
+                            };
+                        }
+                    }
+                    save_state_settings();
+                    render_layered();
+                }
+                IDM_LAYOUT_COMPACT | IDM_LAYOUT_MINIMAL => {
+                    let preset = if id == IDM_LAYOUT_MINIMAL {
                         AppearancePreset::Minimal
                     } else {
                         AppearancePreset::Compact
@@ -2996,6 +3016,46 @@ unsafe extern "system" fn wnd_proc(
                     position_at_taskbar();
                     render_layered();
                     sync_tray_icons(hwnd);
+                }
+                IDM_STYLE_PANEL_BACKGROUND
+                | IDM_STYLE_PANEL_BORDER
+                | IDM_STYLE_QUOTA_TYPE
+                | IDM_STYLE_REMAINING
+                | IDM_STYLE_RESET_TIME
+                | IDM_STYLE_ERROR
+                | IDM_STYLE_PROGRESS_HIGH
+                | IDM_STYLE_PROGRESS_MEDIUM
+                | IDM_STYLE_PROGRESS_LOW
+                | IDM_STYLE_PROGRESS_CONSUMED
+                | IDM_STYLE_DRAG_HANDLE => {
+                    let target = match id {
+                        IDM_STYLE_PANEL_BACKGROUND => StyleColorTarget::PanelBackground,
+                        IDM_STYLE_PANEL_BORDER => StyleColorTarget::PanelBorder,
+                        IDM_STYLE_QUOTA_TYPE => StyleColorTarget::QuotaType,
+                        IDM_STYLE_REMAINING => StyleColorTarget::Remaining,
+                        IDM_STYLE_RESET_TIME => StyleColorTarget::ResetTime,
+                        IDM_STYLE_ERROR => StyleColorTarget::Error,
+                        IDM_STYLE_PROGRESS_HIGH => StyleColorTarget::ProgressHigh,
+                        IDM_STYLE_PROGRESS_MEDIUM => StyleColorTarget::ProgressMedium,
+                        IDM_STYLE_PROGRESS_LOW => StyleColorTarget::ProgressLow,
+                        IDM_STYLE_PROGRESS_CONSUMED => StyleColorTarget::ProgressConsumed,
+                        _ => StyleColorTarget::DragHandle,
+                    };
+                    open_color_editor(hwnd, target);
+                }
+                IDM_STYLE_PANEL_BLUR => {
+                    open_blur_editor(hwnd);
+                }
+                IDM_STYLE_RESET_CURRENT => {
+                    close_style_editors();
+                    {
+                        let mut state = lock_state();
+                        if let Some(s) = state.as_mut() {
+                            s.styles.reset_active(s.is_dark);
+                        }
+                    }
+                    save_state_settings();
+                    render_layered();
                 }
                 IDM_LANG_SYSTEM
                 | IDM_LANG_ENGLISH
