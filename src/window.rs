@@ -147,6 +147,8 @@ const TBM_GETPOS_MSG: u32 = WM_USER;
 const TBM_SETPOS_MSG: u32 = WM_USER + 5;
 const TBM_SETRANGE_MSG: u32 = WM_USER + 6;
 const TB_ENDTRACK_CODE: u16 = 8;
+/// Keep the visible panel border at one physical pixel even at high DPI.
+const PANEL_BORDER_WIDTH_PX: i32 = 1;
 
 const GITHUB_RELEASES_URL: &str =
     "https://github.com/walle-2017/codex-usage-win/releases";
@@ -1566,21 +1568,32 @@ fn render_layered() {
         let pixel_data = std::slice::from_raw_parts_mut(bits as *mut u32, pixel_count);
         fill_bitmap(pixel_data, bg_color);
 
-        let needs_backdrop = style.panel_blur_radius > 0
-            || style.color(StyleColorTarget::PanelBackground).a < 255
-            || style.color(StyleColorTarget::PanelBorder).a < 255;
-        let captured = if needs_backdrop {
+        // Transparency must not be implemented by capturing the taskbar and then
+        // forcing the panel opaque: that leaves a dark/black backing surface when
+        // the configured panel alpha reaches zero. Capture only when blur itself
+        // needs a source image. Plain RGBA transparency is handled by the final
+        // per-pixel alpha pass below.
+        let captured_for_blur = if style.panel_blur_radius > 0 {
             taskbar_hwnd
                 .map(|taskbar| capture_taskbar_background(hwnd, taskbar, mem_dc, width, height))
                 .unwrap_or(false)
         } else {
             false
         };
-        if captured && style.panel_blur_radius > 0 {
-            box_blur_bitmap(pixel_data, width, height, sc(style.panel_blur_radius as i32).max(1));
+        if captured_for_blur {
+            box_blur_bitmap(
+                pixel_data,
+                width,
+                height,
+                sc(style.panel_blur_radius as i32).max(1),
+            );
         }
 
+        // Build an opaque RGB working surface for GDI/ClearType. We snapshot it
+        // before drawing foreground content so the final pass can distinguish the
+        // panel surface from text/progress/drag pixels.
         blend_panel_bitmap(pixel_data, width, height, &style);
+        let panel_pixels = pixel_data.to_vec();
 
         paint_content(
             mem_dc,
@@ -1600,22 +1613,14 @@ fn render_layered() {
             false,
         );
 
-        let outer_inset = sc(1).max(1);
-        for y in 0..height {
-            for x in 0..width {
-                let idx = (y * width + x) as usize;
-                let rgb = pixel_data[idx] & 0x00FFFFFF;
-                if x >= outer_inset
-                    && x < width - outer_inset
-                    && y >= outer_inset
-                    && y < height - outer_inset
-                {
-                    pixel_data[idx] = rgb | 0xFF000000;
-                } else {
-                    pixel_data[idx] = rgb | 0x01000000;
-                }
-            }
-        }
+        finalize_layered_bitmap(
+            pixel_data,
+            &panel_pixels,
+            width,
+            height,
+            &style,
+            captured_for_blur,
+        );
 
         let pt_src = POINT { x: 0, y: 0 };
         let sz = SIZE {
@@ -1758,7 +1763,7 @@ fn blend_pixel(pixel: u32, color: Color) -> u32 {
 
 fn blend_panel_bitmap(pixels: &mut [u32], width: i32, height: i32, style: &ThemeStyle) {
     let outer_inset = sc(1).max(1);
-    let inner_inset = outer_inset + sc(1).max(1);
+    let inner_inset = outer_inset + PANEL_BORDER_WIDTH_PX;
     let border = style.color(StyleColorTarget::PanelBorder);
     let fill = style.color(StyleColorTarget::PanelBackground);
     for y in outer_inset..(height - outer_inset).max(outer_inset) {
@@ -1774,6 +1779,66 @@ fn blend_panel_bitmap(pixels: &mut [u32], width: i32, height: i32, style: &Theme
                 border
             };
             pixels[idx] = blend_pixel(pixels[idx], color);
+        }
+    }
+}
+
+fn panel_color_at(style: &ThemeStyle, width: i32, height: i32, x: i32, y: i32) -> Option<Color> {
+    let outer_inset = sc(1).max(1);
+    if x < outer_inset
+        || x >= width - outer_inset
+        || y < outer_inset
+        || y >= height - outer_inset
+    {
+        return None;
+    }
+    let inner_inset = outer_inset + PANEL_BORDER_WIDTH_PX;
+    if x >= inner_inset
+        && x < width - inner_inset
+        && y >= inner_inset
+        && y < height - inner_inset
+    {
+        Some(style.color(StyleColorTarget::PanelBackground))
+    } else {
+        Some(style.color(StyleColorTarget::PanelBorder))
+    }
+}
+
+fn premultiplied_pixel(color: Color) -> u32 {
+    let alpha = color.a as u32;
+    if alpha == 0 {
+        return 0;
+    }
+    let r = (color.r as u32 * alpha + 127) / 255;
+    let g = (color.g as u32 * alpha + 127) / 255;
+    let b = (color.b as u32 * alpha + 127) / 255;
+    (alpha << 24) | (r << 16) | (g << 8) | b
+}
+
+fn finalize_layered_bitmap(
+    pixels: &mut [u32],
+    panel_pixels: &[u32],
+    width: i32,
+    height: i32,
+    style: &ThemeStyle,
+    flatten_blurred_backdrop: bool,
+) {
+    for y in 0..height {
+        for x in 0..width {
+            let idx = (y * width + x) as usize;
+            let Some(panel_color) = panel_color_at(style, width, height, x, y) else {
+                pixels[idx] = 0;
+                continue;
+            };
+
+            // Foreground content is kept opaque. The panel itself retains the
+            // configured RGBA alpha. With an actual blurred capture, flatten the
+            // blurred backdrop because it already represents the pixels behind us.
+            if pixels[idx] != panel_pixels[idx] || flatten_blurred_backdrop {
+                pixels[idx] = (pixels[idx] & 0x00FFFFFF) | 0xFF000000;
+            } else {
+                pixels[idx] = premultiplied_pixel(panel_color);
+            }
         }
     }
 }
@@ -4474,7 +4539,7 @@ fn draw_panel(hdc: HDC, width: i32, height: i32, border: &Color, fill: &Color) {
         right: width - outer_inset,
         bottom: height - outer_inset,
     };
-    let inner_inset = outer_inset + sc(1).max(1);
+    let inner_inset = outer_inset + PANEL_BORDER_WIDTH_PX;
     let inner = RECT {
         left: inner_inset,
         top: inner_inset,
