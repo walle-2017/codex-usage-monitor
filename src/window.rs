@@ -12,6 +12,7 @@ use windows::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW
 use windows::Win32::System::Registry::*;
 use windows::Win32::System::Threading::{CreateMutexW, WaitForSingleObject};
 use windows::Win32::UI::Accessibility::HWINEVENTHOOK;
+use windows::Win32::UI::Controls::InitCommonControls;
 use windows::Win32::UI::HiDpi::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::{ExtractIconExW, ShellExecuteW};
@@ -25,6 +26,7 @@ use crate::native_interop::{
     self, Color, TIMER_COUNTDOWN, TIMER_POLL, TIMER_RESET_POLL, WM_APP_TRAY, WM_APP_USAGE_UPDATED,
 };
 use crate::poller;
+use crate::style::{StyleColorTarget, StyleSettings, ThemeMode, ThemeStyle};
 use crate::theme;
 use crate::tray_icon;
 use crate::updater;
@@ -55,6 +57,8 @@ struct AppState {
     language_override: Option<LanguageId>,
     language: LanguageId,
     appearance_preset: AppearancePreset,
+    theme_mode: ThemeMode,
+    styles: StyleSettings,
     small_taskbar_mode: bool,
     small_show_weekly: bool,
 
@@ -119,8 +123,30 @@ const IDM_ALERT_10: u16 = 81;
 const IDM_ALERT_20: u16 = 82;
 const IDM_ALERT_30: u16 = 83;
 
-const IDM_APPEARANCE_COMPACT: u16 = 91;
-const IDM_APPEARANCE_MINIMAL: u16 = 92;
+const IDM_LAYOUT_COMPACT: u16 = 91;
+const IDM_LAYOUT_MINIMAL: u16 = 92;
+const IDM_THEME_SYSTEM: u16 = 93;
+const IDM_THEME_DARK: u16 = 94;
+const IDM_THEME_LIGHT: u16 = 95;
+
+const IDM_STYLE_PANEL_BACKGROUND: u16 = 100;
+const IDM_STYLE_PANEL_BORDER: u16 = 101;
+const IDM_STYLE_PANEL_BLUR: u16 = 102;
+const IDM_STYLE_QUOTA_TYPE: u16 = 103;
+const IDM_STYLE_REMAINING: u16 = 104;
+const IDM_STYLE_RESET_TIME: u16 = 105;
+const IDM_STYLE_ERROR: u16 = 106;
+const IDM_STYLE_PROGRESS_HIGH: u16 = 107;
+const IDM_STYLE_PROGRESS_MEDIUM: u16 = 108;
+const IDM_STYLE_PROGRESS_LOW: u16 = 109;
+const IDM_STYLE_PROGRESS_CONSUMED: u16 = 110;
+const IDM_STYLE_DRAG_HANDLE: u16 = 111;
+const IDM_STYLE_RESET_CURRENT: u16 = 112;
+
+const TBM_GETPOS_MSG: u32 = WM_USER;
+const TBM_SETPOS_MSG: u32 = WM_USER + 5;
+const TBM_SETRANGE_MSG: u32 = WM_USER + 6;
+const TB_ENDTRACK_CODE: u16 = 8;
 
 const GITHUB_RELEASES_URL: &str =
     "https://github.com/walle-2017/codex-usage-win/releases";
@@ -132,6 +158,29 @@ const TRAY_ICON_UPDATE_REPOSITION_SUPPRESS_MS: u64 = 750;
 const TASKBAR_WATCH_INTERVAL_SECS: u64 = 2;
 
 static SUPPRESS_TRAY_REPOSITION_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
+
+#[derive(Clone, Copy)]
+struct ColorEditorState {
+    hwnd: SendHwnd,
+    owner: SendHwnd,
+    theme_is_dark: bool,
+    target: StyleColorTarget,
+    sliders: [SendHwnd; 4],
+    value_labels: [SendHwnd; 4],
+    hex_label: SendHwnd,
+}
+
+#[derive(Clone, Copy)]
+struct BlurEditorState {
+    hwnd: SendHwnd,
+    owner: SendHwnd,
+    theme_is_dark: bool,
+    slider: SendHwnd,
+    value_label: SendHwnd,
+}
+
+static COLOR_EDITOR_STATE: Mutex<Option<ColorEditorState>> = Mutex::new(None);
+static BLUR_EDITOR_STATE: Mutex<Option<BlurEditorState>> = Mutex::new(None);
 
 /// Current system DPI (96 = 100% scaling, 144 = 150%, 192 = 200%, etc.)
 static CURRENT_DPI: AtomicU32 = AtomicU32::new(96);
